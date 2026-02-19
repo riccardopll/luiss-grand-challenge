@@ -1,0 +1,19 @@
+{
+  "venvPath": ".",
+  "venv": ".venv",
+  "pythonVersion": "3.12",
+  "typeCheckingMode": "basic",
+  "exclude": [
+    ".venv",
+    "data",
+    "docs",
+    "**/node_modules",
+    "**/__pycache__",
+    "**/.*"
+  ],
+  "reportCallIssue": false,
+  "reportArgumentType": false,
+  "reportAttributeAccessIssue": false,
+  "reportMissingTypeStubs": false,
+  "reportUnusedExpression": false
+}

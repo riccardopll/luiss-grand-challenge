@@ -1,0 +1,9 @@
+pandas
+plotly
+openpyxl
+jupyter
+ipykernel
+autopep8
+taskipy
+pyright
+nbqa

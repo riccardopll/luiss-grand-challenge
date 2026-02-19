@@ -1,0 +1,3 @@
+[tool.taskipy.tasks]
+lint = "python -m nbqa autopep8 main.ipynb --in-place"
+typecheck = "python -m nbqa pyright main.ipynb"
