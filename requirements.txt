@@ -1,5 +1,6 @@
 pandas
 plotly
+kaleido
 openpyxl
 jupyter
 ipykernel

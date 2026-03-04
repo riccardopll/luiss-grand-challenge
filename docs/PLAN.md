@@ -1,4 +1,6 @@
-# Canonical Propensity Program Specification
+# Fater Grand Challenge 2025
+
+**Goal:** Build actionable propensity models and targeted campaigns for the Pampers app using behavioral + profile data.
 
 ## 1. Objective and business framing
 
@@ -8,7 +10,12 @@ Build a unified propensity system for Pampers loyalty users that supports campai
 2. `redeem_30d_prob`: likelihood of redeeming points in the next 30 days.
 3. `lifecycle_continuation_60d_prob`: likelihood that a user in late lifecycle will continue scanning in the next 60 days.
 
-Model 3 is canonicalized as **Lifecycle Continuation** (a lifecycle-scoped re-engagement model).
+### 1.1 Challenge Requirements
+
+- Build a unified propensity system
+- Segment users and identify behavioral patterns
+- Propose targeted marketing campaigns by segment
+- Deliverables: model results, presentation, Python scripts, campaigns proposal
 
 ## 2. Data inventory and observed quality constraints
 
