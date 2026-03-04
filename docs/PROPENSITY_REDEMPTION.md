@@ -1,5 +1,10 @@
 # Propensity Model 2: Redemption (next 30 days)
 
+Scope note:
+
+- Intermediate presentation: this model is introduced conceptually (problem, population, action logic).
+- Final presentation: training results, calibrated thresholds, and KPI impact estimates are reported with validated outputs.
+
 ## 1. Problem definition
 
 Predict whether a user will redeem points in the 30 days after a given reference date.

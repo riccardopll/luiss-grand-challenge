@@ -1,5 +1,10 @@
 # Propensity Model 1: Churn (30 -> 60 day inactivity)
 
+Scope note:
+
+- Intermediate presentation: this model is introduced conceptually (problem, population, action logic).
+- Final presentation: training results, calibrated thresholds, and KPI impact estimates are reported with validated outputs.
+
 ## 1. Problem definition
 
 Predict whether a user currently in the 30-59 day inactivity window will stay inactive for the next 30 days.

@@ -1,12 +1,21 @@
-# Presentation Structure
+# Intermediate Presentation Structure
+
+## Purpose
+
+This deck is aligned to `eda.ipynb` and covers only the intermediate phase:
+
+- EDA evidence and data understanding
+- Problem framing and proposed propensity solution
+- Operational path to final ML delivery
+
+Out of scope for this deck: final trained model performance, final calibrated thresholds, and final KPI/ROI values.
 
 ## Time allocation
 
-- Introduction: **2-3 min**
-- Propensity Model 1 (Churn): **~4 min**
-- Propensity Model 2 (Redemption): **~4 min**
-- Propensity Model 3 (Lifecycle Continuation): **~4 min**
-- Buffer/close: **0.5-1 min**
+- Title, scope, and objective: **1.5-2 min**
+- EDA evidence and diagnostics: **7-8 min**
+- Proposed solution framing: **4-4.5 min**
+- Next steps and close: **1-1.5 min**
 
 Total: **~14.5-15 min**
 
@@ -15,75 +24,78 @@ Total: **~14.5-15 min**
 ### Slide 1 - Title and challenge objective (0:00-0:45)
 
 - Team and project title
-- Business objective: actionable propensity models for Pampers loyalty activation
+- Business objective: actionable propensity system for Pampers loyalty activation
 - Why this matters (retention, reward usage, lifecycle transition)
 
-### Slide 2 - Data foundation and method (0:45-2:30)
+### Slide 2 - Intermediate scope and roadmap (0:45-1:30)
 
-- Data assets used (users, access, scans, missions, redemptions, ISTAT)
-- Canonical key architecture (`idSSO` + join bridge)
-- Leakage-safe approach (rolling reference dates, future-window labels)
+- What this presentation covers now: EDA + problem framing + proposed solution
+- What is deferred to final delivery: trained model results and final business values
+- Roadmap of sections
 
-### Slide 3 - Model 1: Churn problem framing (2:30-3:15)
+### Slide 3 - Dataset size by table (1:30-2:30)
 
-- Target: `churn_30_to_60`
-- Population: users currently 30-59 days inactive
-- Campaign goal: prevent progression into persistent inactivity
+- Data assets and volume concentration across sources
+- Join-planning implications for feature engineering
+- Why aggregation discipline and leakage-safe logic matter
 
-### Slide 4 - Model 1: Features, output, and actions (3:15-4:30)
+### Slide 4 - Monthly active users trend (2:30-3:30)
 
-- Main signals: recency/frequency, reward behavior, lifecycle, channel eligibility
-- Output: `churn_30_to_60_prob`, risk decile, recommended campaign
-- Activation logic: retention prioritization + holdout measurement
+- Engagement baseline over time
+- Non-stationarity and seasonality implications
+- Why temporal validation is mandatory
 
-### Slide 5 - Model 1: Expected impact and KPI tracking (4:30-6:30)
+### Slide 5 - Monthly event intensity (3:30-4:30)
 
-- KPI set: reactivation rate, 30->60 progression reduction, incremental scans
-- Monitoring: drift, calibration by lifecycle bucket, fatigue checks
+- Events per active user by behavior type
+- Intensity variation independent from active-user volume
+- Signal-family motivation for model features
 
-### Slide 6 - Model 2: Redemption problem framing (6:30-7:15)
+### Slide 6 - Total points distribution (4:30-5:30)
 
-- Target: `will_redeem_30d`
-- Population: points-engaged active users (`totalPoints > 0`, recent activity <=90d)
-- Campaign goal: increase reward activation and loyalty
+- Distribution shape, concentration, and heavy-tail behavior
+- Non-null scope and null-vs-zero interpretation
+- Segmentation and robust-threshold implications
 
-### Slide 7 - Model 2: Features, output, and campaign use (7:15-8:30)
+### Slide 7 - Lifecycle stage mix + regional user footprint (5:30-7:00)
 
-- Main signals: points balance/velocity, redemption recency/history, engagement
-- Output: `redeem_30d_prob`, activation segment, points-gap proxy
-- Use cases: activation barriers vs loyalty reinforcement
+- Audience composition by child-age buckets
+- Regional concentration and socioeconomic context
+- Why lifecycle and region should stay explicit in targeting logic
 
-### Slide 8 - Model 2: Measurement and guardrails (8:30-10:30)
+### Slide 8 - Monthly label dynamics (7:00-8:30)
 
-- KPI set: redemption uplift, precision-at-k, incremental value
-- Guardrails: eligibility gating, budget by decile, holdout testing
+- Volume and base-rate differences across targets
+- Why each target is a distinct operational problem
+- Calibration and monitoring implications
 
-### Slide 9 - Model 3: Lifecycle continuation framing (10:30-11:15)
+### Slide 9 - Proposed solution: three complementary propensity models (8:30-10:30)
 
-- Target: `will_scan_60d`
-- Population: users age >=24 months with recent scans
-- Goal: identify retain-vs-transition opportunity near diaper graduation
+- `churn_30_to_60`: prevent persistent inactivity progression
+- `will_redeem_30d`: activate reward usage among eligible users
+- `will_scan_60d`: guide retain-vs-transition lifecycle actions
+- Why three models (different populations, behaviors, and base rates)
 
-### Slide 10 - Model 3: Features, segments, and actions (11:15-12:30)
+### Slide 10 - EDA-to-campaign summary map (10:30-12:30)
 
-- Main signals: scan momentum, lifecycle stage, value interaction, regional context
-- Output: `lifecycle_continuation_60d_prob`, lifecycle stage, transition action
-- Segments: high-potential transition, at-risk transition, early transition prep
+- Sankey view: EDA signals -> model decisions -> campaign levers
+- Conceptual linkage only (intermediate phase)
+- Holdout and governance as cross-model operating requirements
 
-### Slide 11 - Model 3: Business application and cross-sell boundary (12:30-14:30)
+### Slide 11 - Next steps toward final presentation (12:30-14:30)
 
-- Transition strategy by segment
-- Cross-sell claims constrained to observed category evidence
-- KPI set: continuation uplift, transition segment response, ROI by segment
+- Lock feature/label contracts and leakage checks
+- Train/validate/calibrate model stack with temporal splits
+- Define threshold policy by budget and channel constraints
+- Final deck will report validated model and KPI outcomes
 
-### Slide 12 - Final synthesis and next steps (14:30-15:00)
+### Slide 12 - Close / Q&A (14:30-15:00)
 
-- How the 3 scores work together in one activation system
-- Pilot plan: first campaign wave + monitoring cadence
-- Optional Q&A if time remains
+- Recap: evidence, proposed approach, and execution path
+- Open questions and feedback for final-phase refinement
 
 ## Speaker notes (recommended)
 
-- Keep each model section to exactly 4 minutes: 45 sec framing, 75 sec approach/output, 120 sec impact/KPIs.
-- Use one visual per model: problem -> signals -> score -> action.
-- Prioritize business decisions and campaign actions over algorithm details.
+- Keep narrative anchored to `eda.ipynb` section names for consistency.
+- Emphasize that all links in the summary map are EDA-grounded and directional, not final feature importances.
+- Prioritize decision logic and campaign operating model over algorithmic detail at this stage.

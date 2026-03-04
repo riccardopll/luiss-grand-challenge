@@ -1,5 +1,10 @@
 # Propensity Model 3: Lifecycle Continuation (next 60-day scanning)
 
+Scope note:
+
+- Intermediate presentation: this model is introduced conceptually (problem, population, action logic).
+- Final presentation: training results, calibrated thresholds, and KPI impact estimates are reported with validated outputs.
+
 ## 1. Problem definition
 
 This is the canonical third model: **Lifecycle Continuation**.

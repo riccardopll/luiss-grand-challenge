@@ -2,6 +2,20 @@
 
 **Goal:** Build actionable propensity models and targeted campaigns for the Pampers app using behavioral + profile data.
 
+## 0. Delivery phasing
+
+The project is delivered in two phases:
+
+1. **Intermediate phase (current):** EDA, problem framing, and proposed solution design.
+   - Primary artifacts:
+     - `eda.ipynb` (full-context exploratory notebook)
+     - `docs/PRESENTATION.md` (intermediate deck structure)
+2. **Final phase:** full model training/validation, calibrated operating thresholds, and KPI/ROI reporting.
+   - Primary artifacts:
+     - model outputs per propensity
+     - evaluation and calibration report
+     - final campaign operating recommendations
+
 ## 1. Objective and business framing
 
 Build a unified propensity system for Pampers loyalty users that supports campaign decisions with three complementary scores:
@@ -15,7 +29,9 @@ Build a unified propensity system for Pampers loyalty users that supports campai
 - Build a unified propensity system
 - Segment users and identify behavioral patterns
 - Propose targeted marketing campaigns by segment
-- Deliverables: model results, presentation, Python scripts, campaigns proposal
+- Deliverables (phased):
+  - Intermediate: EDA narrative + solution framing presentation
+  - Final: model results, Python pipelines, and campaign proposal with validated metrics
 
 ## 2. Data inventory and observed quality constraints
 
@@ -40,6 +56,7 @@ Build a unified propensity system for Pampers loyalty users that supports campai
   - Redemption events: **28.80%**
 - `rewusers.lastActivity` is fully null and must not be used for behavior recency.
 - `rewusers.totalPoints` is null for **52.41%** of users; null is a meaningful signal.
+- For the **Total Points Distribution** graph, use only non-null `totalPoints` users (`n=2,953`) and do not impute null to zero; `941/3,252` null-balance users (`28.9%`) still show reward activity (scan or redeem), so null is not equivalent to known zero.
 - `rewusers.userId` and `rewusers.idSSO` are a 1:1 bridge.
 - Data horizon:
   - Latest activity date: **2025-10-06**
@@ -167,6 +184,17 @@ Combined execution principles:
 - Use score deciles for targeting policy and budget control.
 
 ## 8. Delivery checklist and challenge artifacts
+
+### 8.1 Intermediate phase artifacts (EDA + framing)
+
+1. `eda.ipynb` containing:
+   - EDA charts and diagnostics
+   - explicit 3-model framing
+   - EDA-to-campaign summary map
+   - next-step handoff section
+2. Intermediate presentation structure in `docs/PRESENTATION.md`, aligned to notebook sections.
+
+### 8.2 Final phase artifacts (modeling + activation)
 
 Deliverables to produce from this specification:
 
