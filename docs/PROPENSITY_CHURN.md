@@ -9,7 +9,7 @@ Scope note:
 
 Predict whether a user currently in the 30-59 day inactivity window will stay inactive for the next 30 days.
 
-- Business question: who needs immediate retention intervention before reaching persistent inactivity?
+- Business question: who is progressing toward persistent inactivity?
 - Prediction target: `churn_30_to_60`
 
 ## 2. Population and scoring unit
@@ -49,6 +49,20 @@ Leakage rule:
 - Features use only events `<= reference_date`.
 - Label uses only events in the future window.
 
+### 3.1 CRM interpretation layer
+
+This model predicts **overall risk of persistent inactivity** only.
+
+- The model output is `churn_30_to_60_prob`.
+- The distinction between `preventable_churn` and `physiological_transition` is made later by the CRM decision engine, not by the churn model itself.
+
+The CRM decision layer should derive that interpretation from:
+
+- lifecycle position (`ETA_MM_BambinoTODAY`, `child_age_bucket`, `is_near_graduation`)
+- recent activity momentum
+- reward/value engagement (`totalPoints`, redemption history)
+- tenure and channel eligibility
+
 ## 4. Feature set
 
 ## 4.1 Recency and frequency momentum
@@ -76,6 +90,7 @@ Leakage rule:
 - `ETA_MM_BambinoTODAY`
 - `child_age_bucket` (pregnancy, 0-11, 12-23, 24-29, 30-35)
 - `is_near_graduation` (>=30)
+- `months_to_transition_proxy = 36 - ETA_MM_BambinoTODAY`
 - `tenure_days`
 - `platform`
 
@@ -121,7 +136,21 @@ Each scored row must include:
 - `reference_date`
 - `churn_30_to_60_prob`
 - `risk_decile`
+
+### 7.1 CRM decision-layer outputs
+
+The CRM decision engine can consume the scored output and produce:
+
+- `churn_type`
 - `recommended_campaign`
+- `recommended_channel`
+- `priority`
+
+Example `churn_type` values:
+
+- `preventable_churn`
+- `physiological_transition`
+- `mixed_or_uncertain`
 
 Recommended campaign values can include:
 
@@ -134,9 +163,10 @@ Recommended campaign values can include:
 
 1. Score eligible 30-59 day inactive users daily/weekly.
 2. Rank by `churn_30_to_60_prob` descending.
-3. Apply eligibility filters (consent/channel).
-4. Allocate budget by decile cutoffs.
-5. Reserve holdout group for uplift measurement.
+3. Use the CRM decision layer to classify high-risk users into `preventable_churn` vs `physiological_transition` vs `mixed_or_uncertain`.
+4. Apply eligibility filters (consent/channel).
+5. Allocate budget primarily to preventable churn cohorts; use guardrails for likely physiological transition.
+6. Reserve holdout group for uplift measurement.
 
 Primary campaign KPIs:
 
@@ -150,6 +180,7 @@ Primary campaign KPIs:
 
 - Score drift and feature drift (monthly).
 - Calibration drift by lifecycle bucket.
+- Stability of CRM `churn_type` assignment by lifecycle bucket.
 - Intervention fatigue by repeated exposure.
 
 ### 9.2 Acceptance criteria
@@ -157,4 +188,5 @@ Primary campaign KPIs:
 1. Every documented feature maps to existing source columns or defined engineered transforms.
 2. Key mapping follows canonical bridge (`userId -> idSSO`) with documented match rates.
 3. No label leakage.
-4. Output schema is complete and campaign-ready.
+4. Predictive output schema is complete and campaign-ready.
+5. CRM decision-layer outputs are explicitly defined for preventable-vs-physiological churn segmentation.

@@ -1,6 +1,6 @@
 # Fater Grand Challenge 2025
 
-**Goal:** Build one actionable CRM decision engine and targeted campaigns for the Fater app using behavioral + profile data.
+**Goal:** Build a unified full propensity model for the Fater app and define the CRM decision engine that activates it through targeted campaigns.
 
 ## 0. Delivery phasing
 
@@ -18,14 +18,28 @@ The project is delivered in two phases:
 
 ## 1. Objective and business framing
 
-Build a unified propensity system for Fater loyalty users that supports campaign decisions with three complementary scores.
-This should be presented as one CRM decision engine with three score-driven campaign moments, not as three unrelated models:
+Build a unified propensity system for Fater loyalty users that supports campaign decisions with two complementary scores.
+This should be presented as one integrated solution with:
+
+- a **full propensity model** as the predictive core
+- a **CRM decision engine** as the campaign activation layer
+
+The two scores below are the predictive inputs used by that decision engine, not unrelated models:
 
 1. `churn_30_to_60_prob`: risk that a user currently 30-59 days inactive will remain inactive for the next 30 days.
 2. `redeem_30d_prob`: likelihood of redeeming points in the next 30 days.
-3. `lifecycle_continuation_60d_prob`: likelihood that a user in late lifecycle will continue scanning in the next 60 days.
 
-### 1.1 Challenge Requirements
+### 1.1 Naming: CRM decision engine vs. full propensity model
+
+- We call the **predictive component** a **full propensity model** because it estimates future behavior probabilities for each user at a given `reference_date`.
+- We call the **business solution** a **CRM decision engine** because CRM needs more than prediction: it needs rules for **who to contact, when, in which channel, with which action, and under which eligibility or budget constraints**.
+- The difference is:
+  - the **full propensity model** answers: "What is likely to happen?"
+  - the **CRM decision engine** answers: "What should CRM do given that prediction?"
+- Therefore, we do **not** name the whole solution only as a full propensity model, because that would describe the scoring layer but not the operational campaign logic.
+- In this project, the correct framing is: **the full propensity model is the analytical core; the CRM decision engine is the activation layer built on top of it**.
+
+### 1.2 Challenge Requirements
 
 - Build a unified propensity system
 - Segment users and identify behavioral patterns
@@ -34,11 +48,46 @@ This should be presented as one CRM decision engine with three score-driven camp
   - Intermediate: EDA narrative + solution framing presentation
   - Final: model results, Python pipelines, and campaign proposal with validated metrics
 
-### 1.2 Business interpretation
+### 1.3 Business interpretation
 
 - A propensity model is the probability of a specific future behavior for a user at a given `reference_date`.
+- A full propensity model can include multiple complementary propensities, as in this project, when each score corresponds to a different CRM decision moment.
+- A CRM decision engine consumes those propensity scores together with business rules, constraints, and channel logic to convert predictions into campaign actions.
+- In this project, `churn_type` is a **CRM decision-layer output**, not a separate predictive target: the CRM engine uses `churn_30_to_60_prob` plus lifecycle and engagement context to distinguish likely **physiological/natural churn** from **preventable churn**.
 - The final deliverable is not the scores alone; it is one or more campaign designs that use those scores to decide who to target, why, with which action, in which channel, and how to measure impact.
-- User overlap across scores is expected. The same user can be simultaneously points-engaged, late-lifecycle, and at risk of churn; the score used depends on the decision being made.
+- User overlap across scores is expected. The same user can be simultaneously points-engaged and at risk of churn; lifecycle remains a supporting context variable inside the CRM decision layer.
+
+### 1.4 Simplified operating design
+
+To keep the submission clear and not over-engineered:
+
+- Keep **two predictive scores** because they support the two clearest CRM decisions in scope: churn prevention and reward activation.
+- Keep **one simple CRM decision engine** on top of those scores rather than adding extra predictive models for churn type, lifecycle continuation, or next-best product.
+- Treat `churn_type` (`preventable_churn` vs `physiological_transition`) as a **decision-layer classification**, not as an additional model output.
+- Keep lifecycle as a **supporting feature and business-rule input**, not as a third predictive target, so the submission stays easier to explain and validate.
+
+### 1.5 CRM decision engine example
+
+Example inputs to the CRM decision engine:
+
+- Predictive inputs:
+  - `churn_30_to_60_prob = 0.81`
+  - `redeem_30d_prob = 0.18`
+- Non-predictive inputs:
+  - `ETA_MM_BambinoTODAY = 32`
+  - `is_near_graduation = 1`
+  - `totalPoints = 420`
+  - `channel_eligible_push = 1`
+  - `days_since_last_contact = 12`
+
+Example CRM decision output:
+
+- `user_id = 12345`
+- `churn_type = physiological_transition`
+- `recommended_action = transition_guardrail`
+- `recommended_channel = push`
+- `priority = medium`
+- `reason = high churn risk, late lifecycle, push eligible`
 
 ## 2. Data inventory and observed quality constraints
 
@@ -178,11 +227,10 @@ Canonical training entity across models:
 - Optional benchmark: Random Forest
 - Class imbalance: class weights + threshold optimization on business objective
 
-## 7. Campaign operating model across the 3 propensities
+## 7. Campaign operating model across the 2 propensities
 
-1. **Churn prevention**: prioritize users with high `churn_30_to_60_prob` and campaign eligibility.
+1. **Churn prevention**: prioritize users with high `churn_30_to_60_prob`, then let the CRM decision layer classify likely preventable churn versus likely physiological transition before activation.
 2. **Reward activation**: among points-engaged users, prioritize low `redeem_30d_prob` users with high activation upside.
-3. **Lifecycle transition**: use `lifecycle_continuation_60d_prob` with lifecycle stage to separate retain-vs-transition actions.
 
 Combined execution principles:
 
@@ -196,7 +244,7 @@ Combined execution principles:
 
 1. `eda.ipynb` containing:
    - EDA charts and diagnostics
-   - explicit 3-model framing
+   - explicit 2-model framing
    - EDA-to-campaign summary map
    - next-step handoff section
 2. Intermediate presentation structure in `docs/PRESENTATION.md`, aligned to notebook sections.
@@ -206,9 +254,11 @@ Combined execution principles:
 Deliverables to produce from this specification:
 
 1. Reproducible feature/label pipeline with documented joins and filters.
-2. Three scored outputs with canonical schemas:
-   - Churn: (`idSSO`, `reference_date`, `churn_30_to_60_prob`, `risk_decile`, `recommended_campaign`)
-   - Redemption: (`idSSO`, `reference_date`, `redeem_30d_prob`, `activation_segment`, `points_gap_proxy`)
-   - Lifecycle: (`idSSO`, `reference_date`, `lifecycle_continuation_60d_prob`, `lifecycle_stage`, `transition_action`)
-3. Evaluation report with temporal validation and calibration checks.
-4. Campaign proposal with segmentation logic, KPI definitions, and holdout methodology.
+2. Two scored outputs with canonical predictive schemas:
+   - Churn: (`idSSO`, `reference_date`, `churn_30_to_60_prob`, `risk_decile`)
+   - Redemption: (`idSSO`, `reference_date`, `redeem_30d_prob`, `points_gap_proxy`)
+3. CRM decision-engine outputs with activation fields, for example:
+   - Churn decision: (`idSSO`, `reference_date`, `churn_type`, `recommended_campaign`, `recommended_channel`, `priority`)
+   - Redemption decision: (`idSSO`, `reference_date`, `activation_segment`, `recommended_action`, `recommended_channel`, `priority`)
+4. Evaluation report with temporal validation and calibration checks.
+5. Campaign proposal with segmentation logic, KPI definitions, and holdout methodology.

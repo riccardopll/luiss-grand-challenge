@@ -17,7 +17,7 @@ EXPORT_TARGETS = [
     ("05-lifecycle-stage-mix.svg", 1150, 350),
     ("06-regional-user-footprint-1.svg", 1250, 650),
     ("07-regional-user-footprint-2.svg", 1250, 650),
-    ("08-monthly-label-dynamics.svg", 1250, 950),
+    ("08-monthly-label-dynamics.svg", 1150, 750),
 ]
 SVG_NS = "http://www.w3.org/2000/svg"
 XLINK_NS = "http://www.w3.org/1999/xlink"

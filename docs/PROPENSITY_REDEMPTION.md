@@ -155,8 +155,16 @@ Each scored row must include:
 - `idSSO`
 - `reference_date`
 - `redeem_30d_prob`
-- `activation_segment`
 - `points_gap_proxy`
+
+### 9.1 CRM decision-layer outputs
+
+The CRM decision engine can consume the scored output and produce:
+
+- `activation_segment`
+- `recommended_action`
+- `recommended_channel`
+- `priority`
 
 Example `activation_segment` values:
 

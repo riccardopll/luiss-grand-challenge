@@ -9,7 +9,7 @@ What this deck covers:
 
 - EDA evidence and data understanding
 - Business problem framing
-- Why the project should be presented as one CRM engine with three scores
+- Why the project should be presented as one CRM engine with two scores
 - How those scores will translate into campaign families
 
 What this deck does not cover yet:
@@ -26,8 +26,8 @@ The presentation should follow one business narrative from start to finish:
 1. Fater needs a smarter CRM decision system, not generic batch campaigns.
 2. The data is rich enough to describe engagement, value, lifecycle stage, and regional context.
 3. The user base is heterogeneous, so one targeting rule would be too crude.
-4. The three target behaviors in scope behave differently in size, timing, and base rate.
-5. Therefore, the right solution is one CRM engine with three propensity scores.
+4. The two target behaviors in scope behave differently in size, timing, and base rate.
+5. Therefore, the right solution is one CRM engine with two propensity scores.
 6. The final business output will be one or more campaigns built from those scores, not the scores alone.
 
 ## Graph placement
@@ -45,7 +45,7 @@ All existing EDA graphs should be used in the main deck in this order:
 
 Slides 10 and 11 should use custom presentation visuals rather than notebook export images:
 
-- Slide 10: a simple three-card CRM engine schema
+- Slide 10: a simple two-card CRM engine schema
 - Slide 11: an EDA-to-campaign operating map or Sankey
 
 ## Time allocation
@@ -97,7 +97,7 @@ This slide shows the broad engagement baseline over time. The key business point
 - Goal: show that users interact in different ways, not just at different volumes
 
 Discourse:
-Looking only at active-user counts would hide the richness of the behavioral signal. This heatmap shows that access, scans, missions, and redemptions have different intensities over time. That is important because the future campaigns will not be triggered by one generic notion of engagement; they will use specific behavior types to infer churn risk, reward activation potential, and lifecycle continuation.
+Looking only at active-user counts would hide the richness of the behavioral signal. This heatmap shows that access, scans, missions, and redemptions have different intensities over time. That is important because the future campaigns will not be triggered by one generic notion of engagement; they will use specific behavior types to infer churn risk and reward activation potential, while lifecycle remains an important decision context.
 
 ### Slide 6 - Total points distribution (4:00-5:00)
 
@@ -128,24 +128,24 @@ Region should not be treated as decorative segmentation. The user base is geogra
 ### Slide 9 - Monthly label dynamics (7:00-8:30)
 
 - Visual: `images/08-monthly-label-dynamics.svg`
-- Goal: provide the strongest quantitative reason for three scores instead of one
+- Goal: provide the strongest quantitative reason for two scores instead of one
 
 Discourse:
-This is the most important bridge slide in the whole presentation. It shows that the three target behaviors do not operate in the same regime: their populations, base rates, and time patterns are materially different. That means one generic propensity score would be misleading. The project needs one CRM engine with multiple score outputs because churn prevention, redemption activation, and lifecycle continuation are different decision problems even if they share the same data backbone.
+This is the most important bridge slide in the whole presentation. It shows that the two target behaviors do not operate in the same regime: their populations, base rates, and time patterns are materially different. That means one generic propensity score would be misleading. The project needs one CRM engine with multiple score outputs because churn prevention and redemption activation are different decision problems even if they share the same data backbone.
 
-### Slide 10 - Proposed solution: one CRM engine, three propensity scores (8:30-10:15)
+### Slide 10 - Proposed solution: one CRM engine, two propensity scores (8:30-10:15)
 
-- Visual: custom three-card schema, no notebook image
+- Visual: custom two-card schema, no notebook image
 - Goal: convert the EDA into a business operating model
 
 Discourse:
-At this point the story should become simple. We are not proposing three disconnected models. We are proposing one CRM decision engine that answers three business questions: who is at risk of persistent inactivity, who is most relevant for reward activation, and who should receive retention-versus-transition actions in late lifecycle. The common foundation is the same user snapshot, but each score exists because the decision, the eligible population, and the campaign lever are different.
+At this point the story should become simple. We are not proposing multiple disconnected models. We are proposing two predictive scores and one lightweight CRM decision engine on top of them. The churn model predicts overall inactivity risk; the CRM layer then interprets that risk as more preventable versus more physiological using lifecycle and engagement context. Redemption remains a direct activation score. The common foundation is the same user snapshot, but each score exists because the decision, the eligible population, and the campaign lever are different.
 
 Recommended visual structure:
 
-- Card 1: `churn_30_to_60` -> prevent persistent inactivity
+- Card 1: `churn_30_to_60` -> predict persistent inactivity risk
 - Card 2: `will_redeem_30d` -> activate reward usage
-- Card 3: `will_scan_60d` -> guide retain-vs-transition action
+- Footer: CRM layer -> `churn_type`, channel, priority, recommended campaign
 
 ### Slide 11 - EDA-to-campaign operating map (10:15-12:30)
 
@@ -153,13 +153,18 @@ Recommended visual structure:
 - Goal: make the final deliverable explicit for the business audience
 
 Discourse:
-This slide should answer the practical question, “So what do we do with this?” The EDA feeds the propensity engine, the engine produces score-based audiences, and those audiences map to campaign families. For example, churn scores support save campaigns, redemption scores support reward activation campaigns, and lifecycle continuation scores support transition or retention journeys. This is also the right place to state that the final output is not only scoring, but campaign design with target audience, trigger logic, channel, action, and holdout measurement.
+This slide should answer the practical question, “So what do we do with this?” The EDA feeds the propensity engine, the engine produces score-based audiences, and those audiences map to campaign families. For example, churn scores support save campaigns, while redemption scores support reward activation campaigns. Lifecycle stage still matters, but as decision context inside the CRM layer rather than as a third predictive model. This is also the right place to state that the final output is not only scoring, but campaign design with target audience, trigger logic, channel, action, and holdout measurement.
+
+Simple example to show on the slide:
+
+- Inputs: `churn_30_to_60_prob = 0.81`, `ETA_MM_BambinoTODAY = 32`, push eligible = yes
+- CRM output: `churn_type = physiological_transition`, `recommended_campaign = transition_guardrail`, `recommended_channel = push`
 
 Recommended operating flow:
 
 - EDA signals -> shared snapshot features
-- Shared features -> three propensity scores
-- Scores + consent/channel rules -> campaign audiences
+- Shared features -> two propensity scores
+- Scores + lifecycle/consent/channel rules -> CRM decision outputs
 - Campaign audiences -> message, incentive, and measurement plan
 
 ### Slide 12 - Next steps and close (12:30-15:00)
@@ -168,7 +173,7 @@ Recommended operating flow:
 - Goal: close the scope clearly and leave the audience with the right expectation
 
 Discourse:
-We have established that the data supports a campaign-oriented CRM engine and that three score outputs are justified by the behavior in the data. The next phase is to operationalize that logic: finalize feature and label contracts, train and calibrate the models, translate scores into campaign rules, and validate the business value with holdouts and KPI measurement. The final presentation will therefore move from evidence and framing to validated campaign recommendations.
+We have established that the data supports a campaign-oriented CRM engine and that two score outputs are justified by the behavior in the data. The next phase is to operationalize that logic: finalize feature and label contracts, train and calibrate the models, translate scores into campaign rules, and validate the business value with holdouts and KPI measurement. The final presentation will therefore move from evidence and framing to validated campaign recommendations.
 
 ## Presentation checks
 
@@ -184,8 +189,8 @@ Before building slides, keep these logic checks in mind:
 
 ## Speaker notes
 
-- Keep the core framing explicit throughout: one CRM engine, three scores, multiple campaign families.
-- Do not describe the three scores as three unrelated workstreams.
+- Keep the core framing explicit throughout: one CRM engine, two scores, multiple campaign families.
+- Do not describe the two scores as unrelated workstreams.
 - When discussing graphs, always link them back to a business decision, not only to a modeling idea.
 - Treat Slide 9 as the turning point from EDA evidence to solution logic.
 - Treat Slide 11 as the answer to the business audience's most likely question: what action will this enable?
