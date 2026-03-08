@@ -77,8 +77,18 @@ Example inputs to the CRM decision engine:
   - `ETA_MM_BambinoTODAY = 32`
   - `is_near_graduation = 1`
   - `totalPoints = 420`
-  - `channel_eligible_push = 1`
-  - `days_since_last_contact = 12`
+- `channel_eligible_push = 1`
+- `days_since_last_contact = 12`
+
+Example decision logic:
+
+- If `churn_30_to_60_prob >= 0.75`
+- and `is_near_graduation = 1`
+- and `channel_eligible_push = 1`
+- then classify the user as more likely `physiological_transition`
+- and assign `recommended_action = transition_guardrail`
+- otherwise, if `churn_30_to_60_prob >= 0.75` and the user is not near graduation, classify as `preventable_churn`
+- otherwise, if `redeem_30d_prob` is low and the user has points, assign a reward-activation action
 
 Example CRM decision output:
 
