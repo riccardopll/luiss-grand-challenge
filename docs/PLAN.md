@@ -1,6 +1,6 @@
 # Fater Grand Challenge 2025
 
-**Goal:** Build actionable propensity models and targeted campaigns for the Pampers app using behavioral + profile data.
+**Goal:** Build one actionable CRM decision engine and targeted campaigns for the Fater app using behavioral + profile data.
 
 ## 0. Delivery phasing
 
@@ -10,15 +10,16 @@ The project is delivered in two phases:
    - Primary artifacts:
      - `eda.ipynb` (full-context exploratory notebook)
      - `docs/PRESENTATION.md` (intermediate deck structure)
-2. **Final phase:** full model training/validation, calibrated operating thresholds, and KPI/ROI reporting.
+2. **Final phase:** full model training/validation, calibrated operating thresholds, campaign design, and KPI/ROI reporting.
    - Primary artifacts:
      - model outputs per propensity
      - evaluation and calibration report
-     - final campaign operating recommendations
+     - final campaign operating recommendations and audience rules
 
 ## 1. Objective and business framing
 
-Build a unified propensity system for Pampers loyalty users that supports campaign decisions with three complementary scores:
+Build a unified propensity system for Fater loyalty users that supports campaign decisions with three complementary scores.
+This should be presented as one CRM decision engine with three score-driven campaign moments, not as three unrelated models:
 
 1. `churn_30_to_60_prob`: risk that a user currently 30-59 days inactive will remain inactive for the next 30 days.
 2. `redeem_30d_prob`: likelihood of redeeming points in the next 30 days.
@@ -32,6 +33,12 @@ Build a unified propensity system for Pampers loyalty users that supports campai
 - Deliverables (phased):
   - Intermediate: EDA narrative + solution framing presentation
   - Final: model results, Python pipelines, and campaign proposal with validated metrics
+
+### 1.2 Business interpretation
+
+- A propensity model is the probability of a specific future behavior for a user at a given `reference_date`.
+- The final deliverable is not the scores alone; it is one or more campaign designs that use those scores to decide who to target, why, with which action, in which channel, and how to measure impact.
+- User overlap across scores is expected. The same user can be simultaneously points-engaged, late-lifecycle, and at risk of churn; the score used depends on the decision being made.
 
 ## 2. Data inventory and observed quality constraints
 
