@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
+import os
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
@@ -10,14 +12,14 @@ import plotly.graph_objects as go
 import plotly.io as pio
 
 EXPORT_TARGETS = [
-    ("01-dataset-size-by-table.svg", 950, 400),
-    ("02-monthly-active-users-trend.svg", 950, 350),
-    ("03-monthly-event-intensity.svg", 850, 350),
-    ("04-total-points-distribution.svg", 1150, 350),
-    ("05-lifecycle-stage-mix.svg", 1150, 350),
-    ("06-regional-user-footprint-1.svg", 1250, 650),
-    ("07-regional-user-footprint-2.svg", 1250, 650),
-    ("08-monthly-label-dynamics.svg", 1150, 550),
+    "01-dataset-size-by-table.svg",
+    "02-monthly-active-users-trend.svg",
+    "03-monthly-event-intensity.svg",
+    "04-total-points-distribution.svg",
+    "05-lifecycle-stage-mix.svg",
+    "06-regional-user-footprint-1.svg",
+    "07-regional-user-footprint-2.svg",
+    "08-monthly-label-dynamics.svg",
 ]
 SVG_NS = "http://www.w3.org/2000/svg"
 XLINK_NS = "http://www.w3.org/1999/xlink"
@@ -138,10 +140,35 @@ def round_svg_corners(svg_path: Path, *, width: int, height: int, radius: int) -
     tree.write(svg_path, encoding="unicode")
 
 
+def infer_figure_dimensions(figure: go.Figure, *, filename: str) -> tuple[int, int]:
+    width = figure.layout.width
+    height = figure.layout.height
+    if width is None or height is None:
+        raise ValueError(
+            f"Figure for {filename} is missing layout width/height. "
+            "Set the dimensions in eda.ipynb before exporting."
+        )
+    return int(width), int(height)
+
+
+def export_single_figure(
+    figure: go.Figure,
+    *,
+    filename: str,
+    output_dir: Path,
+) -> str:
+    output_path = output_dir / filename
+    export_figure = go.Figure(figure)
+    width, height = infer_figure_dimensions(export_figure, filename=filename)
+    export_figure.write_image(output_path, width=width, height=height)
+    round_svg_corners(output_path, width=width, height=height, radius=24)
+    return f"exported {output_path} ({width}x{height})"
+
+
 def export_figures(
     figures: list[go.Figure],
     output_dir: Path,
-    export_targets: list[tuple[str, int, int]],
+    export_targets: list[str],
 ) -> None:
     if len(figures) != len(export_targets):
         raise ValueError(
@@ -153,24 +180,17 @@ def export_figures(
 
     pio.defaults.default_format = "svg"
 
-    for figure, (filename, width, height) in zip(
-        figures, export_targets, strict=True
-    ):
-        output_path = output_dir / filename
-        export_figure = go.Figure(figure)
-        export_figure.update_layout(title=None)
-        if export_figure.layout.margin is not None:
-            export_figure.update_layout(
-                margin={
-                    "l": export_figure.layout.margin.l or 0,
-                    "r": export_figure.layout.margin.r or 0,
-                    "b": export_figure.layout.margin.b or 0,
-                    "t": 24,
-                }
-            )
-        export_figure.write_image(output_path, width=width, height=height)
-        round_svg_corners(output_path, width=width, height=height, radius=24)
-        print(f"exported {output_path} ({width}x{height})")
+    max_workers = min(len(figures), os.cpu_count() or 1)
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        for message in executor.map(
+            lambda item: export_single_figure(
+                item[0],
+                filename=item[1],
+                output_dir=output_dir,
+            ),
+            zip(figures, export_targets, strict=True),
+        ):
+            print(message)
 
 
 def main() -> None:

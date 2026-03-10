@@ -1,3 +1,4 @@
 [tool.taskipy.tasks]
 lint = "python -m nbqa autopep8 *.ipynb --in-place"
 typecheck = "python -m nbqa pyright *.ipynb"
+export = "python export_notebook_figures.py"
