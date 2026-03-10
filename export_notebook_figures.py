@@ -12,7 +12,7 @@ import plotly.io as pio
 EXPORT_TARGETS = [
     ("01-dataset-size-by-table.svg", 950, 400),
     ("02-monthly-active-users-trend.svg", 950, 350),
-    ("03-monthly-event-intensity.svg", 950, 350),
+    ("03-monthly-event-intensity.svg", 850, 350),
     ("04-total-points-distribution.svg", 1150, 350),
     ("05-lifecycle-stage-mix.svg", 1150, 350),
     ("06-regional-user-footprint-1.svg", 1250, 650),
