@@ -1,4 +1,11 @@
 .DS_Store
 data/
 .venv/
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 exports/
+artifacts/

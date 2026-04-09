@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CRM Decision Engine Demo</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}" />
+  </head>
+  <body>
+    <main class="dashboard-shell">
+      <section class="command-card">
+        <div class="command-copy">
+          <p class="eyebrow">Fater Loyalty Strategy</p>
+          <h1>CRM Decision Engine</h1>
+        </div>
+
+        <form class="lookup-form" id="lookup-form">
+          <label for="user_id">User ID</label>
+          <div class="lookup-row">
+            <input
+              id="user_id"
+              name="user_id"
+              type="text"
+              value="{{ user_id }}"
+              placeholder="Paste an idSSO value"
+              autocomplete="off"
+            />
+            <button type="submit" id="inspect-button">Inspect User</button>
+          </div>
+        </form>
+
+        <div class="command-footer">
+          <div class="sample-strip">
+            <span>Sample IDs</span>
+            {% for sample in sample_user_ids %}
+            <button
+              class="sample-pill"
+              type="button"
+              data-user-id="{{ sample }}"
+            >
+              {{ sample[:12] }}...
+            </button>
+            {% endfor %}
+          </div>
+          <p class="snapshot-note">
+            Latest reference date: {{ latest_reference_date }}
+          </p>
+        </div>
+      </section>
+
+      <section class="status-card hidden" id="status-card"></section>
+
+      <section class="metrics-row hidden" id="metrics-row">
+        <article class="metric-card">
+          <span class="metric-label">Region</span>
+          <strong class="metric-value metric-value-region" id="metric-region"
+            >-</strong
+          >
+        </article>
+        <article class="metric-card">
+          <span class="metric-label">Last Activity</span>
+          <strong class="metric-value" id="metric-activity">-</strong>
+        </article>
+        <article class="metric-card">
+          <span class="metric-label">Churn Risk</span>
+          <strong class="metric-value" id="metric-churn">-</strong>
+        </article>
+        <article class="metric-card">
+          <span class="metric-label">Redeem Propensity</span>
+          <strong class="metric-value" id="metric-redemption">-</strong>
+        </article>
+      </section>
+
+      <section class="dashboard-grid hidden" id="dashboard-grid">
+        <article class="dash-card profile-card">
+          <div class="card-head">
+            <p class="card-kicker">Profile Snapshot</p>
+          </div>
+          <dl class="facts-grid" id="profile-facts"></dl>
+        </article>
+
+        <article class="dash-card logic-card">
+          <div class="card-head">
+            <p class="card-kicker">Decision Logic</p>
+          </div>
+          <div class="logic-panels">
+            <section class="rule-card" id="churn-rule-card">
+              <div class="rule-topline">
+                <span class="rule-name">Churn</span>
+                <span class="rule-chip" id="churn-score-chip">-</span>
+              </div>
+              <p class="rule-summary" id="churn-summary"></p>
+              <p class="rule-meta" id="churn-meta"></p>
+              <ul class="rule-lines" id="churn-lines"></ul>
+            </section>
+
+            <section class="rule-card" id="redemption-rule-card">
+              <div class="rule-topline">
+                <span class="rule-name">Redemption</span>
+                <span class="rule-chip" id="redemption-score-chip">-</span>
+              </div>
+              <p class="rule-summary" id="redemption-summary"></p>
+              <p class="rule-meta" id="redemption-meta"></p>
+              <ul class="rule-lines" id="redemption-lines"></ul>
+            </section>
+          </div>
+        </article>
+
+        <article class="dash-card action-card">
+          <div class="card-head">
+            <p class="card-kicker">CRM Action</p>
+            <h2 id="action-title">No active campaign</h2>
+          </div>
+          <div class="action-hero">
+            <p class="action-summary" id="action-summary"></p>
+            <div class="action-chips">
+              <span class="action-chip" id="action-channel">Channel: -</span>
+              <span class="action-chip" id="action-priority">Priority: -</span>
+            </div>
+          </div>
+          <ul class="action-list" id="action-steps"></ul>
+        </article>
+      </section>
+    </main>
+
+    <script>
+      (() => {
+        const initialPayload = {{ initial_payload | tojson }};
+        const initialUserId = {{ user_id | tojson }};
+        const initialNotFound = {{ not_found | tojson }};
+
+        const form = document.getElementById("lookup-form");
+        const input = document.getElementById("user_id");
+        const button = document.getElementById("inspect-button");
+        const sampleButtons = Array.from(document.querySelectorAll(".sample-pill"));
+        const metricsRow = document.getElementById("metrics-row");
+        const dashboardGrid = document.getElementById("dashboard-grid");
+        const statusCard = document.getElementById("status-card");
+
+        const metricRegion = document.getElementById("metric-region");
+        const metricActivity = document.getElementById("metric-activity");
+        const metricChurn = document.getElementById("metric-churn");
+        const metricRedemption = document.getElementById("metric-redemption");
+
+        const profileFacts = document.getElementById("profile-facts");
+
+        const churnScoreChip = document.getElementById("churn-score-chip");
+        const churnSummary = document.getElementById("churn-summary");
+        const churnMeta = document.getElementById("churn-meta");
+        const churnLines = document.getElementById("churn-lines");
+
+        const redemptionScoreChip = document.getElementById("redemption-score-chip");
+        const redemptionSummary = document.getElementById("redemption-summary");
+        const redemptionMeta = document.getElementById("redemption-meta");
+        const redemptionLines = document.getElementById("redemption-lines");
+
+        const actionTitle = document.getElementById("action-title");
+        const actionSummary = document.getElementById("action-summary");
+        const actionChannel = document.getElementById("action-channel");
+        const actionPriority = document.getElementById("action-priority");
+        const actionSteps = document.getElementById("action-steps");
+
+        const hiddenClass = "hidden";
+
+        const formatPoints = (value) => (
+          value === null || value === undefined ? "Unknown" : `${Math.round(value).toLocaleString()} pts`
+        );
+
+        const formatDays = (value) => (
+          value === null || value === undefined ? "Unknown" : `${value} days ago`
+        );
+
+        const titleize = (value) => (value || "-").replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
+
+        const setLoading = (isLoading) => {
+          document.body.classList.toggle("is-loading", isLoading);
+          button.disabled = isLoading;
+          button.textContent = isLoading ? "Loading..." : "Inspect User";
+        };
+
+        const setStatus = (message, kind) => {
+          if (!message) {
+            statusCard.classList.add(hiddenClass);
+            statusCard.classList.remove("status-error", "status-info");
+            statusCard.textContent = "";
+            return;
+          }
+          statusCard.textContent = message;
+          statusCard.classList.remove(hiddenClass, "status-error", "status-info");
+          statusCard.classList.add(kind === "error" ? "status-error" : "status-info");
+        };
+
+        const renderList = (element, items) => {
+          element.innerHTML = "";
+          items.forEach((item) => {
+            const li = document.createElement("li");
+            li.textContent = item;
+            element.appendChild(li);
+          });
+        };
+
+        const renderFacts = (profile) => {
+          const factDescriptions = {
+            Region: "Customer region associated with the latest available snapshot.",
+            Lifecycle: "Child age bucket and observed age in months used for segmentation.",
+            "Points Balance": "Current loyalty points balance available to the customer.",
+            "Points Gap": "Estimated distance from the next relevant reward threshold in points.",
+            "Last Activity": "Days since the customer's latest tracked loyalty activity.",
+            "Push Consent": "Whether the customer can receive push notifications.",
+            "Email Consent": "Whether the customer can receive email communication.",
+          };
+
+          const facts = [
+            ["Region", profile.region],
+            ["Lifecycle", `${profile.child_age_bucket}${profile.child_age_months !== null ? ` (${profile.child_age_months} months)` : ""}`],
+            ["Points Balance", formatPoints(profile.total_points)],
+            ["Points Gap", profile.points_gap_proxy !== null ? `${Math.round(profile.points_gap_proxy).toLocaleString()} pts` : "Unknown"],
+            ["Last Activity", formatDays(profile.days_since_last_activity)],
+            ["Push Consent", profile.push_consent ? "Yes" : "No"],
+            ["Email Consent", profile.email_consent ? "Yes" : "No"],
+          ];
+
+          profileFacts.innerHTML = "";
+          facts.forEach(([label, value]) => {
+            const description = factDescriptions[label] || label;
+            const row = document.createElement("div");
+            row.className = "fact-row";
+
+            const term = document.createElement("dt");
+            term.className = "fact-term";
+
+            const termLabel = document.createElement("span");
+            termLabel.textContent = label;
+
+            const tooltipTrigger = document.createElement("span");
+            tooltipTrigger.className = "fact-tooltip-trigger";
+            tooltipTrigger.tabIndex = 0;
+            tooltipTrigger.setAttribute("aria-label", `${label}: ${description}`);
+
+            const tooltipIcon = document.createElement("span");
+            tooltipIcon.className = "fact-tooltip-icon";
+            tooltipIcon.textContent = "i";
+
+            const tooltipBubble = document.createElement("span");
+            tooltipBubble.className = "fact-tooltip-bubble";
+            tooltipBubble.textContent = description;
+
+            tooltipTrigger.append(tooltipIcon, tooltipBubble);
+            term.append(termLabel, tooltipTrigger);
+
+            const desc = document.createElement("dd");
+            desc.className = "fact-value";
+            desc.textContent = value;
+
+            row.append(term, desc);
+            profileFacts.appendChild(row);
+          });
+        };
+
+        const renderRule = (rule, elements) => {
+          elements.chip.textContent = rule.score_label;
+          elements.summary.textContent = rule.summary;
+          elements.meta.textContent = `Rule ${rule.matched_rule} · Segment ${titleize(rule.segment)} · Action ${titleize(rule.action)}`;
+          renderList(elements.lines, rule.logic_lines);
+        };
+
+        const renderAction = (action) => {
+          actionTitle.textContent = action.title;
+          actionSummary.textContent = action.summary;
+          actionChannel.textContent = `Channel: ${titleize(action.channel)}`;
+          actionPriority.textContent = `Priority: ${titleize(action.priority)}`;
+          renderList(actionSteps, action.next_steps);
+        };
+
+        let currentPayload = null;
+
+        const renderPayload = (payload) => {
+          currentPayload = payload;
+          metricsRow.classList.remove(hiddenClass);
+          dashboardGrid.classList.remove(hiddenClass);
+
+          metricRegion.textContent = payload.profile.region;
+          metricActivity.textContent = formatDays(payload.profile.days_since_last_activity);
+          metricChurn.textContent = payload.profile.churn_risk_label;
+          metricRedemption.textContent = payload.profile.redeem_propensity_label;
+
+          renderFacts(payload.profile);
+
+          renderRule(payload.churn, {
+            chip: churnScoreChip,
+            summary: churnSummary,
+            meta: churnMeta,
+            lines: churnLines,
+          });
+
+          renderRule(payload.redemption, {
+            chip: redemptionScoreChip,
+            summary: redemptionSummary,
+            meta: redemptionMeta,
+            lines: redemptionLines,
+          });
+
+          renderAction(payload.suggested_action);
+          setStatus(null);
+        };
+
+        const resetDashboard = (message = null) => {
+          currentPayload = null;
+          metricsRow.classList.add(hiddenClass);
+          dashboardGrid.classList.add(hiddenClass);
+          setStatus(message, message ? "error" : "info");
+        };
+
+        const updateUrl = (userId) => {
+          const url = new URL(window.location.href);
+          if (userId) {
+            url.searchParams.set("user_id", userId);
+          } else {
+            url.searchParams.delete("user_id");
+          }
+          window.history.replaceState({}, "", url);
+        };
+
+        const fetchUser = async (userId) => {
+          const cleanId = userId.trim();
+          if (!cleanId) {
+            resetDashboard();
+            updateUrl("");
+            return;
+          }
+
+          setLoading(true);
+          try {
+            const response = await fetch(`/api/user/${encodeURIComponent(cleanId)}`);
+            if (!response.ok) {
+              throw new Error("User not found in the latest snapshot.");
+            }
+            const payload = await response.json();
+            input.value = cleanId;
+            renderPayload(payload);
+            updateUrl(cleanId);
+          } catch (error) {
+            resetDashboard(error.message);
+          } finally {
+            setLoading(false);
+          }
+        };
+
+        form.addEventListener("submit", (event) => {
+          event.preventDefault();
+          fetchUser(input.value);
+        });
+
+        sampleButtons.forEach((buttonElement) => {
+          buttonElement.addEventListener("click", () => {
+            const userId = buttonElement.dataset.userId || "";
+            input.value = userId;
+            fetchUser(userId);
+          });
+        });
+
+        if (initialPayload) {
+          renderPayload(initialPayload);
+        } else if (initialNotFound) {
+          resetDashboard("User not found in the latest snapshot.");
+        }
+      })();
+    </script>
+  </body>
+</html>

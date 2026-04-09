@@ -8,3 +8,6 @@ autopep8
 taskipy
 pyright
 nbqa
+scikit-learn
+fastapi
+uvicorn

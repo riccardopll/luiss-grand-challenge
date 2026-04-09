@@ -1,0 +1,17 @@
+# One rule per line. First match wins within each audience.
+# Format:
+# audience=<audience>|rule_name=<name>|condition=<pandas.eval expression>|segment=<segment>|action=<action>|recommended_channel=<channel>|priority=<priority>
+
+audience=churn|rule_name=transition_guardrail_push|condition=churn_30_to_60_prob >= 0.75 & is_near_graduation == 1 & channel_eligible_phone_push == 1|segment=physiological_transition|action=low_roi_transition_guardrail|recommended_channel=push|priority=medium
+audience=churn|rule_name=preventable_push|condition=churn_30_to_60_prob >= 0.75 & is_near_graduation == 0 & channel_eligible_phone_push == 1|segment=preventable_churn|action=preventable_churn_core|recommended_channel=push|priority=high
+audience=churn|rule_name=preventable_email|condition=churn_30_to_60_prob >= 0.75 & is_near_graduation == 0 & channel_eligible_email == 1|segment=preventable_churn|action=preventable_churn_core|recommended_channel=email|priority=high
+audience=churn|rule_name=high_risk_no_channel|condition=churn_30_to_60_prob >= 0.75|segment=mixed_or_uncertain|action=insufficient_channel_eligibility|recommended_channel=none|priority=low
+audience=churn|rule_name=reward_nudge_email|condition=churn_30_to_60_prob >= 0.60 & is_points_user == 1 & channel_eligible_email == 1|segment=mixed_or_uncertain|action=reward_threshold_nudge|recommended_channel=email|priority=medium
+audience=churn|rule_name=default_churn|condition=True|segment=mixed_or_uncertain|action=insufficient_channel_eligibility|recommended_channel=none|priority=low
+
+audience=redemption|rule_name=activation_barrier_email|condition=redeem_30d_prob >= 0.20 & redeem_30d_prob < 0.55 & points_gap_proxy > 0 & points_gap_proxy <= 2000 & channel_eligible_email == 1|segment=activation_barrier|action=points_gap_reminder|recommended_channel=email|priority=high
+audience=redemption|rule_name=ready_to_redeem_push|condition=redeem_30d_prob >= 0.55 & channel_eligible_phone_push == 1|segment=ready_to_redeem|action=premium_reward_preview|recommended_channel=push|priority=high
+audience=redemption|rule_name=loyalty_reinforcement_email|condition=redeem_30d_prob >= 0.55 & has_ever_redeemed == 1 & channel_eligible_email == 1|segment=loyalty_reinforcement|action=mission_bundle_reward|recommended_channel=email|priority=medium
+audience=redemption|rule_name=activation_barrier_push|condition=redeem_30d_prob >= 0.20 & redeem_30d_prob < 0.55 & points_gap_proxy > 0 & points_gap_proxy <= 2000 & channel_eligible_phone_push == 1|segment=activation_barrier|action=points_gap_reminder|recommended_channel=push|priority=medium
+audience=redemption|rule_name=not_eligible|condition=channel_eligible_email == 0 & channel_eligible_phone_push == 0|segment=not_campaign_eligible|action=no_action|recommended_channel=none|priority=low
+audience=redemption|rule_name=default_redemption|condition=True|segment=ready_to_redeem|action=points_balance_reminder|recommended_channel=email|priority=low

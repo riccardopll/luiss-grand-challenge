@@ -1,4 +1,5 @@
 [tool.taskipy.tasks]
-lint = "python -m nbqa autopep8 *.ipynb --in-place"
-typecheck = "python -m nbqa pyright *.ipynb"
+lint = "npx --yes prettier@3 --write 'web/**/*.{html,css}' && autopep8 --in-place --recursive . && python -m nbqa autopep8 *.ipynb --in-place"
+typecheck = "pyright . && python -m nbqa pyright *.ipynb"
 export = "python export_notebook_figures.py"
+web = "uvicorn web.app:app --reload"

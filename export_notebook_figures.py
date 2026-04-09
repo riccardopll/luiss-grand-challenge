@@ -124,7 +124,8 @@ def round_svg_corners(svg_path: Path, *, width: int, height: int, radius: int) -
         style = background.get("style", "")
         background.set(
             "style",
-            style.replace("fill: rgb(0, 0, 0); fill-opacity: 0;", "fill: rgb(255, 255, 255); fill-opacity: 1;"),
+            style.replace("fill: rgb(0, 0, 0); fill-opacity: 0;",
+                          "fill: rgb(255, 255, 255); fill-opacity: 1;"),
         )
 
     content_group = ET.Element(
@@ -172,7 +173,8 @@ def export_figures(
 ) -> None:
     if len(figures) != len(export_targets):
         raise ValueError(
-            f"Expected {len(export_targets)} Plotly figures, found {len(figures)}. "
+            f"Expected {len(export_targets)} Plotly figures, found {
+                len(figures)}. "
             "Re-run the notebook before exporting."
         )
 
