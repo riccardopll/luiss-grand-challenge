@@ -438,6 +438,49 @@ h1 {
   color: #d22185;
 }
 
+.brief-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.brief-item {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.brief-item:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.brief-label {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-soft);
+}
+
+.brief-value,
+.brief-note {
+  color: var(--text-dark);
+}
+
+.brief-value {
+  margin: 6px 0 0;
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.brief-note {
+  margin: 6px 0 0;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
 .action-summary {
   margin: 0;
   line-height: 1.55;

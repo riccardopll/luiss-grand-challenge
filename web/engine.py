@@ -1,36 +1,33 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from pathlib import Path
-import re
+from typing import Any, cast
 
 import pandas as pd
 
 
+CHURN_THRESHOLD = 0.5
+ENGAGEMENT_THRESHOLD = 0.5
+POINTS_CLOSE_THRESHOLD = 50
+NEW_USER_TENURE_DAYS = 90
+ALL_CHANNELS = ["email", "push"]
+
+
 @dataclass
-class RuleView:
-    audience: str
+class CRMOutput:
     matched_rule: str
     condition: str
-    segment: str
+    segment_id: str
+    segment_name: str
+    campaign: str
     action: str
-    channel: str
-    priority: str
-    score: float | None
-    score_label: str
-    eligible: bool
+    channels: list[str]
     summary: str
     logic_lines: list[str]
-
-
-@dataclass
-class SuggestedAction:
-    title: str
-    channel: str
-    priority: str
-    campaign_label: str
-    summary: str
-    next_steps: list[str]
+    execution_notes: list[str]
+    marketing_brief: dict[str, dict[str, str]]
 
 
 @dataclass
@@ -38,9 +35,12 @@ class UserPayload:
     user_id: str
     reference_date: str
     profile: dict[str, object]
-    churn: RuleView
-    engagement: RuleView
-    suggested_action: SuggestedAction
+    crm_output: CRMOutput
+
+
+class _SafeFormatDict(dict[str, str]):
+    def __missing__(self, key: str) -> str:
+        return "{" + key + "}"
 
 
 def _is_missing(value: object) -> bool:
@@ -53,8 +53,8 @@ def _is_missing(value: object) -> bool:
 def _clean_text(value: object, fallback: str = "Unknown") -> str:
     if _is_missing(value):
         return fallback
-    txt = str(value).strip()
-    return txt if txt else fallback
+    text = str(value).strip()
+    return text if text else fallback
 
 
 def _clean_float(value: object) -> float | None:
@@ -70,22 +70,37 @@ def _clean_int(value: object) -> int | None:
     return int(round(numeric))
 
 
-def _priority_rank(value: str) -> int:
-    return {"high": 3, "medium": 2, "low": 1}.get(value.lower(), 0)
-
-
-def _score_band(probability: float | None) -> str:
-    if probability is None:
+def _score_state(score: float | None, threshold: float) -> str:
+    if score is None:
         return "Not scored"
-    if probability >= 0.75:
-        return "High"
-    if probability >= 0.45:
-        return "Medium"
-    return "Low"
+    return "High" if score >= threshold else "Low"
 
 
-def _campaign_label(value: str) -> str:
-    return value.replace("_", " ").strip().title()
+def _yes_no(value: bool) -> str:
+    return "Yes" if value else "No"
+
+
+def _format_score(value: float | None) -> str:
+    if value is None:
+        return "Not scored"
+    return f"{value:.2f}"
+
+
+def _format_days(value: int | None) -> str:
+    if value is None:
+        return "Unknown"
+    day_label = "day" if value == 1 else "days"
+    return f"{value} {day_label}"
+
+
+def _format_points(value: float | None) -> str:
+    if value is None:
+        return "Unknown"
+    return f"{int(round(value)):,} points"
+
+
+def _truthy_flag(value: object) -> bool:
+    return _clean_int(value) == 1
 
 
 class CRMDecisionEngine:
@@ -97,8 +112,10 @@ class CRMDecisionEngine:
         self._load_data()
 
     def _load_data(self) -> None:
-        training_artifacts = pd.read_pickle(
-            self.artifacts_dir / "eda_training_artifacts.pkl")
+        training_artifacts = cast(
+            dict[str, Any],
+            pd.read_pickle(self.artifacts_dir / "eda_training_artifacts.pkl"),
+        )
 
         user_base = training_artifacts["user_base"].copy()
         user_base["idSSO"] = user_base["idSSO"].astype(str)
@@ -113,47 +130,76 @@ class CRMDecisionEngine:
         latest_snapshot = snapshots[snapshots["reference_date"]
                                     == latest_reference].copy()
         latest_snapshot["idSSO"] = latest_snapshot["idSSO"].astype(str)
-        latest_snapshot["points_gap_proxy"] = (
+        latest_snapshot["points_gap"] = (
             latest_snapshot["reward_threshold_points"] -
-            latest_snapshot["totalPoints"].fillna(0)
+            latest_snapshot["totalPoints"]
         ).clip(lower=0)
 
-        self.latest_reference_date = latest_reference.strftime("%Y-%m-%d")
-        self.snapshot = latest_snapshot.merge(
-            self.user_profile, on="idSSO", how="left")
+        churn_scores = pd.read_csv(
+            self.artifacts_dir / "final" / "churn_scores_current.csv")
+        churn_scores["idSSO"] = churn_scores["idSSO"].astype(str)
 
-        churn = pd.read_csv(self.artifacts_dir / "final" /
-                            "churn_engine_current.csv")
-        churn["idSSO"] = churn["idSSO"].astype(str)
-        self.churn = churn
+        engagement_scores = pd.read_csv(
+            self.artifacts_dir / "final" / "engagement_scores_current.csv")
+        engagement_scores["idSSO"] = engagement_scores["idSSO"].astype(str)
 
-        engagement = pd.read_csv(
-            self.artifacts_dir / "final" / "engagement_engine_current.csv")
-        engagement["idSSO"] = engagement["idSSO"].astype(str)
-        self.engagement = engagement
+        product_categories = self._build_product_categories(training_artifacts)
+        prize_formats = self._build_prize_formats(training_artifacts)
 
-        sample_frame = churn.merge(
-            engagement,
+        merged = latest_snapshot.merge(
+            self.user_profile, on="idSSO", how="left"
+        ).merge(
+            churn_scores[["idSSO", "churn_30_to_60_prob"]],
             on="idSSO",
-            how="inner",
-            suffixes=("_churn", "_engagement"),
+            how="left",
+        ).merge(
+            engagement_scores[["idSSO", "re_engage_30d_prob"]],
+            on="idSSO",
+            how="left",
+        ).merge(
+            product_categories,
+            on="idSSO",
+            how="left",
+        ).merge(
+            prize_formats,
+            on="idSSO",
+            how="left",
         )
-        if sample_frame.empty:
-            self.sample_user_ids = sorted(churn["idSSO"].head(6).tolist())
-        else:
-            sample_frame["priority_rank"] = sample_frame[["priority_churn", "priority_engagement"]].apply(
-                lambda row: max(_priority_rank(
-                    str(row.iloc[0])), _priority_rank(str(row.iloc[1]))),
-                axis=1,
-            )
-            sample_frame = sample_frame.sort_values(
-                ["priority_rank", "churn_30_to_60_prob", "re_engage_30d_prob"],
-                ascending=[False, False, False],
-            )
-            self.sample_user_ids = sample_frame["idSSO"].head(6).tolist()
 
-    def _load_rules(self) -> dict[tuple[str, str], dict[str, str]]:
-        rules: dict[tuple[str, str], dict[str, str]] = {}
+        merged["physiological_churn"] = merged["is_near_graduation"].fillna(
+            0).astype(int)
+        merged["high_churn"] = (
+            merged["churn_30_to_60_prob"].fillna(-1) >= CHURN_THRESHOLD
+        ).astype(int)
+        merged["high_engagement"] = (
+            merged["re_engage_30d_prob"].fillna(-1) >= ENGAGEMENT_THRESHOLD
+        ).astype(int)
+        merged["points_close"] = (
+            merged["points_gap"].fillna(POINTS_CLOSE_THRESHOLD + 1) <=
+            POINTS_CLOSE_THRESHOLD
+        ).astype(int)
+        merged["mission_engagement"] = merged.apply(
+            self._mission_engagement_value, axis=1)
+        merged["preferred_incentive_title"] = merged["mission_engagement"].map(
+            {
+                "Mission-active": "Bonus mission",
+                "Mission-curious": "Bonus mission",
+                "Scan-led": "Double points scan",
+            }
+        ).fillna("Double points scan")
+        merged["preferred_incentive_lower"] = merged[
+            "preferred_incentive_title"
+        ].str.lower()
+        merged["education_clause"] = merged["tenure_days"].apply(
+            self._education_clause)
+
+        self.latest_reference_date = latest_reference.strftime("%Y-%m-%d")
+        self.user_frame = merged
+        self.segment_lookup = self._build_segment_lookup(merged)
+        self.sample_user_ids = self._build_sample_user_ids(merged)
+
+    def _load_rules(self) -> list[dict[str, str]]:
+        rules: list[dict[str, str]] = []
         for raw_line in self.rules_path.read_text().splitlines():
             line = raw_line.strip()
             if not line or line.startswith("#"):
@@ -162,301 +208,422 @@ class CRMDecisionEngine:
             for part in line.split("|"):
                 key, value = part.split("=", 1)
                 parts[key] = value
-            rules[(parts["audience"], parts["rule_name"])] = parts
+            rules.append(parts)
         return rules
 
     def lookup(self, user_id: str) -> UserPayload | None:
-        snapshot_match = self.snapshot[self.snapshot["idSSO"] == user_id]
-        if snapshot_match.empty:
+        match = self.user_frame[self.user_frame["idSSO"] == user_id]
+        if match.empty:
             return None
 
-        profile_row = snapshot_match.iloc[0]
-        churn_row = self._first_row(self.churn, user_id)
-        engagement_row = self._first_row(self.engagement, user_id)
-
-        profile = self._build_profile(profile_row, churn_row, engagement_row)
-        churn_view = self._build_churn_view(profile_row, churn_row)
-        engagement_view = self._build_engagement_view(
-            profile_row, engagement_row)
-        suggested_action = self._build_suggested_action(
-            profile_row, churn_view, engagement_view)
-
+        row = match.iloc[0]
         return UserPayload(
             user_id=user_id,
             reference_date=self.latest_reference_date,
-            profile=profile,
-            churn=churn_view,
-            engagement=engagement_view,
-            suggested_action=suggested_action,
+            profile=self._build_profile(row),
+            crm_output=self._build_crm_output(row),
         )
 
-    @staticmethod
-    def _first_row(frame: pd.DataFrame, user_id: str) -> pd.Series | None:
-        subset = frame[frame["idSSO"] == user_id]
-        if subset.empty:
-            return None
-        return subset.iloc[0]
-
-    def _build_profile(
-        self,
-        profile_row: pd.Series,
-        churn_row: pd.Series | None,
-        engagement_row: pd.Series | None,
-    ) -> dict[str, object]:
-        churn_prob = _clean_float(
-            churn_row["churn_30_to_60_prob"]) if churn_row is not None else None
-        engagement_prob = _clean_float(
-            engagement_row["re_engage_30d_prob"]) if engagement_row is not None else None
-        total_points = _clean_float(profile_row["totalPoints"])
+    def _build_profile(self, row: pd.Series) -> dict[str, object]:
+        churn_score = _clean_float(row["churn_30_to_60_prob"])
+        engagement_score = _clean_float(row["re_engage_30d_prob"])
+        points_gap = _clean_float(row["points_gap"])
         return {
-            "region": _clean_text(profile_row["Regione"]),
-            "child_age_bucket": _clean_text(profile_row["child_age_bucket"]),
-            "child_age_months": _clean_int(profile_row["ETA_MM_BambinoTODAY"]),
-            "days_since_last_activity": _clean_int(profile_row["days_since_last_activity"]),
-            "total_points": total_points,
-            "points_gap_proxy": _clean_float(profile_row["points_gap_proxy"]),
-            "churn_risk_label": _score_band(churn_prob),
-            "re_engage_label": _score_band(engagement_prob),
-            "push_consent": bool(_clean_int(profile_row["channel_eligible_phone_push"]) == 1),
-            "email_consent": bool(_clean_int(profile_row["channel_eligible_email"]) == 1),
+            "region": _clean_text(row["Regione"]),
+            "child_age_bucket": _clean_text(row["child_age_bucket"]),
+            "child_age_months": _clean_int(row["ETA_MM_BambinoTODAY"]),
+            "days_since_last_activity": _clean_int(row["days_since_last_activity"]),
+            "days_since_last_scan": _clean_int(row["days_since_last_scan"]),
+            "total_points": _clean_float(row["totalPoints"]),
+            "points_gap": points_gap,
+            "points_proximity": "Close" if _truthy_flag(row["points_close"]) else "Far",
+            "physiological_churn": _truthy_flag(row["physiological_churn"]),
+            "churn_score": churn_score,
+            "churn_score_label": _score_state(churn_score, CHURN_THRESHOLD),
+            "re_engage30d": engagement_score,
+            "re_engage_label": _score_state(
+                engagement_score, ENGAGEMENT_THRESHOLD),
+            "mission_engagement": _clean_text(row["mission_engagement"]),
+            "account_tenure_days": _clean_int(row["tenure_days"]),
+            "push_consent": _truthy_flag(row["channel_eligible_phone_push"]),
+            "email_consent": _truthy_flag(row["channel_eligible_email"]),
         }
 
-    def _build_churn_view(self, profile_row: pd.Series, churn_row: pd.Series | None) -> RuleView:
-        if churn_row is None:
-            return RuleView(
-                audience="churn",
-                matched_rule="not_scored",
-                condition="days_since_last_activity must be between 30 and 59 days",
-                segment="not_eligible",
-                action="no_action",
-                channel="none",
-                priority="low",
-                score=None,
-                score_label="Not scored",
-                eligible=False,
-                summary="User is outside the 30-59 day inactivity window, so the churn engine is not active.",
-                logic_lines=[
-                    f"Latest inactivity is {_clean_int(
-                        profile_row['days_since_last_activity'])} days.",
-                    "Churn scoring only runs for users currently 30-59 days inactive.",
-                ],
-            )
-
-        matched_rule = _clean_text(churn_row["matched_rule"])
-        rule = self.rules[("churn", matched_rule)]
-        score = _clean_float(churn_row["churn_30_to_60_prob"])
-        return RuleView(
-            audience="churn",
-            matched_rule=matched_rule,
+    def _build_crm_output(self, row: pd.Series) -> CRMOutput:
+        rule = self._match_rule(row)
+        template_context = self._template_context(row)
+        return CRMOutput(
+            matched_rule=rule["rule_name"],
             condition=rule["condition"],
-            segment=_clean_text(churn_row["churn_type"]),
-            action=_clean_text(churn_row["recommended_campaign"]),
-            channel=_clean_text(churn_row["recommended_channel"]),
-            priority=_clean_text(churn_row["priority"]),
-            score=score,
-            score_label=_score_band(score),
-            eligible=True,
-            summary=self._summarize_rule("churn", matched_rule, churn_row),
-            logic_lines=self._logic_lines(
-                rule["condition"], profile_row, churn_row),
+            segment_id=rule["segment_id"],
+            segment_name=rule["segment_name"],
+            campaign=self._render_template(rule["campaign"], template_context),
+            action=self._render_template(rule["action"], template_context),
+            channels=ALL_CHANNELS.copy(),
+            summary=self._render_template(rule["summary"], template_context),
+            logic_lines=self._build_logic_lines(row, rule),
+            execution_notes=self._build_execution_notes(row, rule),
+            marketing_brief=self._build_marketing_brief(row),
         )
 
-    def _build_engagement_view(
-        self,
-        profile_row: pd.Series,
-        engagement_row: pd.Series | None,
-    ) -> RuleView:
-        if engagement_row is None:
-            return RuleView(
-                audience="engagement",
-                matched_rule="not_scored",
-                condition="user needs historical activity to enter the re-engagement audience",
-                segment="not_eligible",
-                action="no_action",
-                channel="none",
-                priority="low",
-                score=None,
-                score_label="Not scored",
-                eligible=False,
-                summary="User is outside the current re-engagement audience.",
-                logic_lines=[
-                    f"Latest activity is {_clean_int(profile_row['days_since_last_activity'])} days ago.",
-                    "Re-engagement scoring is reserved for users with observed historical activity.",
-                ],
-            )
-
-        matched_rule = _clean_text(engagement_row["matched_rule"])
-        rule = self.rules[("engagement", matched_rule)]
-        score = _clean_float(engagement_row["re_engage_30d_prob"])
-        return RuleView(
-            audience="engagement",
-            matched_rule=matched_rule,
-            condition=rule["condition"],
-            segment=_clean_text(engagement_row["engagement_segment"]),
-            action=_clean_text(engagement_row["recommended_action"]),
-            channel=_clean_text(engagement_row["recommended_channel"]),
-            priority=_clean_text(engagement_row["priority"]),
-            score=score,
-            score_label=_score_band(score),
-            eligible=True,
-            summary=self._summarize_rule(
-                "engagement", matched_rule, engagement_row),
-            logic_lines=self._logic_lines(
-                rule["condition"], profile_row, engagement_row),
-        )
-
-    def _build_suggested_action(
-        self,
-        profile_row: pd.Series,
-        churn: RuleView,
-        engagement: RuleView,
-    ) -> SuggestedAction:
-        points_gap = _clean_float(profile_row["points_gap_proxy"]) or 0.0
-
-        if churn.eligible and engagement.eligible and _priority_rank(churn.priority) >= 2 and points_gap <= 2000:
-            channel = churn.channel if churn.channel != "none" else engagement.channel
-            return SuggestedAction(
-                title="Reward-led reactivation",
-                channel=channel,
-                priority="high" if churn.priority == "high" else "medium",
-                campaign_label="Reactivation With Reward Angle",
-                summary="Use the churn signal to trigger outreach, but frame the message around reward momentum to encourage return.",
-                next_steps=[
-                    f"Contact through {
-                        channel} today with a reward-focused reactivation message.",
-                    "Reference the points balance or reward threshold to make the return value concrete.",
-                    f"Route the user into `{churn.action}` with `{
-                        engagement.action}` as the creative angle.",
-                ],
-            )
-
-        chosen = churn if _priority_rank(churn.priority) >= _priority_rank(
-            engagement.priority) else engagement
-        actionable = chosen.eligible and chosen.channel != "none" and chosen.action not in {
-            "no_action",
-            "insufficient_channel_eligibility",
+    def _match_rule(self, row: pd.Series) -> dict[str, str]:
+        variables = {
+            "physiological_churn": _clean_int(row["physiological_churn"]) or 0,
+            "high_churn": _clean_int(row["high_churn"]) or 0,
+            "high_engagement": _clean_int(row["high_engagement"]) or 0,
+            "points_close": _clean_int(row["points_close"]) or 0,
         }
-        label = _campaign_label(chosen.action)
-        summary = (
-            "The top-priority engine result should drive CRM activation for this user."
-            if actionable
-            else "The current rules do not support an outbound campaign for this user in the latest snapshot."
-        )
-        return SuggestedAction(
-            title=label if actionable else "No active campaign",
-            channel=chosen.channel,
-            priority=chosen.priority,
-            campaign_label=label,
-            summary=summary,
-            next_steps=[
-                f"Use `{chosen.matched_rule}` as the governing rule.",
-                f"Preferred channel: {chosen.channel}.",
-                f"Execution priority: {chosen.priority}.",
-            ],
+        for rule in self.rules:
+            if bool(pd.eval(rule["condition"], local_dict=variables, engine="python")):
+                return rule
+        raise ValueError("No CRM rule matched the current user.")
+
+    def _template_context(self, row: pd.Series) -> dict[str, str]:
+        return _SafeFormatDict(
+            {
+                "preferred_incentive_title": _clean_text(
+                    row["preferred_incentive_title"]),
+                "preferred_incentive_lower": _clean_text(
+                    row["preferred_incentive_lower"]),
+                "education_clause": _clean_text(
+                    row["education_clause"], fallback=""),
+            }
         )
 
-    def _summarize_rule(self, audience: str, matched_rule: str, rule_row: pd.Series) -> str:
-        if matched_rule.startswith("default"):
-            if audience == "churn":
-                return "No higher-priority churn rule matched, so the fallback retention stance applies."
-            return "No tighter re-engagement trigger matched, so the default nurture action applies."
-        if audience == "churn":
-            return (
-                f"Matched `{
-                    matched_rule}` because the user is in an actionable inactivity state "
-                f"with `{_clean_text(
-                    rule_row['recommended_channel'])}` available."
-            )
-        return (
-            f"Matched `{
-                matched_rule}` because the user fits the current re-engagement scenario "
-            f"for `{_clean_text(rule_row['recommended_channel'])}` outreach."
-        )
-
-    def _logic_lines(
+    def _build_logic_lines(
         self,
-        condition: str,
-        profile_row: pd.Series,
-        rule_row: pd.Series,
+        row: pd.Series,
+        rule: dict[str, str],
     ) -> list[str]:
-        if condition == "True":
-            return self._fallback_logic(profile_row, rule_row)
-
-        lines: list[str] = []
-        for clause in [part.strip() for part in condition.split("&")]:
-            explanation = self._explain_clause(clause, profile_row, rule_row)
-            if explanation:
-                lines.append(explanation)
-        return lines or self._fallback_logic(profile_row, rule_row)
-
-    def _fallback_logic(self, profile_row: pd.Series, rule_row: pd.Series) -> list[str]:
-        lines = []
-        churn_prob = _clean_float(rule_row.get("churn_30_to_60_prob")) if isinstance(
-            rule_row, pd.Series) else None
-        engagement_prob = _clean_float(rule_row.get("re_engage_30d_prob")) if isinstance(
-            rule_row, pd.Series) else None
-        if churn_prob is not None:
-            lines.append(f"Churn probability is {
-                         churn_prob:.1%}, below the strongest save-rule thresholds.")
-        if engagement_prob is not None:
-            lines.append(f"Re-engagement probability is {
-                         engagement_prob:.1%}, so a light nurture action is sufficient.")
-        if not lines:
+        lines = [self._physiological_line(row)]
+        if _truthy_flag(row["physiological_churn"]):
             lines.append(
-                "No stronger rule condition was satisfied in the latest snapshot.")
+                "Lifecycle exit short-circuits churn, engagement, and points checks."
+            )
+        else:
+            lines.append(self._score_line(
+                "Churn score",
+                _clean_float(row["churn_30_to_60_prob"]),
+                CHURN_THRESHOLD,
+                default_note="The score is missing in the current export, so the engine falls back to low churn.",
+            ))
+            if _truthy_flag(row["high_churn"]):
+                lines.append(self._score_line(
+                    "Re-engage30d",
+                    _clean_float(row["re_engage_30d_prob"]),
+                    ENGAGEMENT_THRESHOLD,
+                    default_note="The score is missing in the current export, so the engine falls back to low engagement.",
+                ))
+                lines.append(self._points_line(row))
+            else:
+                lines.append(self._points_line(row))
+                if not _truthy_flag(row["points_close"]):
+                    lines.append(self._score_line(
+                        "Re-engage30d",
+                        _clean_float(row["re_engage_30d_prob"]),
+                        ENGAGEMENT_THRESHOLD,
+                        default_note="The score is missing in the current export, so the engine falls back to low engagement.",
+                    ))
+
         lines.append(
-            f"Latest inactivity is {_clean_int(
-                profile_row['days_since_last_activity'])} days with "
-            f"{self._points_text(_clean_float(
-                profile_row['totalPoints']))} available."
+            f"First matching rule in priority order: `{rule['rule_name']}` -> {rule['segment_id']}."
         )
         return lines
 
-    def _explain_clause(self, clause: str, profile_row: pd.Series, rule_row: pd.Series) -> str | None:
-        match = re.match(
-            r"([a-zA-Z0-9_]+)\s*(>=|<=|==|>|<)\s*([a-zA-Z0-9_.]+)", clause)
-        if not match:
-            return clause
+    def _build_execution_notes(
+        self,
+        row: pd.Series,
+        rule: dict[str, str],
+    ) -> list[str]:
+        notes = [
+            "Launch on both email and push to keep the CRM output channel-consistent."]
+        segment_id = rule["segment_id"]
+        points_gap = _clean_float(row["points_gap"])
 
-        field, operator, raw_value = match.groups()
-        threshold = float(raw_value) if raw_value.replace(
-            ".", "", 1).isdigit() else raw_value
-        source_row = rule_row if field in rule_row.index else profile_row
-        current_value = source_row.get(field)
+        if points_gap is not None and segment_id in {"S1", "S3", "S5"}:
+            notes.append(
+                f"State the exact reward gap: {_format_points(points_gap)}.")
 
-        if field == "churn_30_to_60_prob":
-            current = _clean_float(current_value) or 0.0
-            return f"Churn probability is {current:.1%}, which satisfies `{field} {operator} {float(threshold):.2f}`."
-        if field == "re_engage_30d_prob":
-            current = _clean_float(current_value) or 0.0
-            return f"Re-engagement probability is {current:.1%}, which satisfies `{field} {operator} {float(threshold):.2f}`."
-        if field == "points_gap_proxy":
-            current = _clean_float(current_value) or 0.0
-            return f"Points gap is {current:,.0f}, matching `{field} {operator} {int(float(threshold))}`."
-        if field == "is_near_graduation":
-            state = "close to lifecycle transition" if _clean_int(
-                current_value) == 1 else "not close to lifecycle transition"
-            return f"Lifecycle status is {state}."
-        if field == "channel_eligible_phone_push":
-            state = "Push is allowed by consent." if _clean_int(
-                current_value) == 1 else "Push is not allowed by consent."
-            return state
-        if field == "channel_eligible_email":
-            state = "Email is allowed by consent." if _clean_int(
-                current_value) == 1 else "Email is not allowed by consent."
-            return state
-        if field == "is_points_user":
-            state = "User has an observable points balance." if _clean_int(
-                current_value) == 1 else "User has no observable points balance."
-            return state
-        if field == "has_ever_redeemed":
-            state = "User has redeemed at least once before." if _clean_int(
-                current_value) == 1 else "User has not redeemed before."
-            return state
-        return f"{field} is `{current_value}` and satisfies `{clause}`."
+        if segment_id in {"S2", "S6", "S7"}:
+            notes.append(
+                f"Use a {_clean_text(row['preferred_incentive_lower'])} mechanic because the user's mission history points in that direction."
+            )
+
+        if segment_id == "S4":
+            notes.append(
+                "Use a short time window and urgent rescue framing to restart the scanning habit."
+            )
+
+        if segment_id == "S0":
+            notes.append(
+                "Frame the reward as a thank-you for past loyalty, then pivot to referral acquisition."
+            )
+
+        if not _truthy_flag(row["has_ever_redeemed"]):
+            notes.append(
+                "Include one line on how redemption works because the user has not redeemed before."
+            )
+
+        tenure_days = _clean_int(row["tenure_days"])
+        if tenure_days is not None and tenure_days < NEW_USER_TENURE_DAYS:
+            notes.append(
+                "Add onboarding context because the account is still under 90 days old."
+            )
+
+        product_category = _clean_text(
+            row["product_category"], fallback="No scan history yet")
+        notes.append(
+            f"Anchor the creative in the user's top product categories: {product_category}."
+        )
+        return notes
+
+    def _build_marketing_brief(self, row: pd.Series) -> dict[str, dict[str, str]]:
+        points_gap = _clean_float(row["points_gap"])
+        last_scan_days = _clean_int(row["days_since_last_scan"])
+        has_redeemed = _truthy_flag(row["has_ever_redeemed"])
+        tenure_days = _clean_int(row["tenure_days"])
+        prize_format = self._prize_format_label(
+            row["prize_format"], has_redeemed=has_redeemed)
+        return {
+            "product_category": {
+                "label": "Top product categories",
+                "value": _clean_text(
+                    row["product_category"], fallback="No scan history yet"),
+                "guidance": "Use these categories to anchor the reward framing or examples in the product groups the user scans most often.",
+            },
+            "points_gap": {
+                "label": "Points gap",
+                "value": _format_points(points_gap),
+                "guidance": "Use the exact number in copy when the user is close to a reward.",
+            },
+            "prize_format": {
+                "label": "Prize format",
+                "value": prize_format,
+                "guidance": "Mirror the reward format the user already trusts, or explain the reward type clearly if they have never redeemed.",
+            },
+            "mission_engagement": {
+                "label": "Mission engagement",
+                "value": _clean_text(row["mission_engagement"]),
+                "guidance": "Use this to choose between a mission-led push and a scan-led incentive.",
+            },
+            "last_scan_days_ago": {
+                "label": "Last scan recency",
+                "value": _format_days(last_scan_days),
+                "guidance": self._last_scan_guidance(last_scan_days),
+            },
+            "has_ever_redeemed": {
+                "label": "Has ever redeemed",
+                "value": _yes_no(has_redeemed),
+                "guidance": "First-time redeemers need a short explanation of what happens after they request a prize.",
+            },
+            "account_tenure_days": {
+                "label": "Account tenure",
+                "value": _format_days(tenure_days),
+                "guidance": self._tenure_guidance(tenure_days),
+            },
+            "region": {
+                "label": "Region",
+                "value": _clean_text(row["Regione"]),
+                "guidance": "Localise the opening line or community framing when that makes the message feel less broadcast.",
+            },
+        }
+
+    def _build_segment_lookup(self, frame: pd.DataFrame) -> dict[str, str]:
+        segment_map: dict[str, str] = {}
+        for _, row in frame.iterrows():
+            rule = self._match_rule(row)
+            segment_map[str(row["idSSO"])] = rule["segment_id"]
+        return segment_map
+
+    def _build_sample_user_ids(self, frame: pd.DataFrame) -> list[str]:
+        sample_ids: list[str] = []
+        sortable = frame.copy()
+        sortable["segment_id"] = sortable["idSSO"].map(self.segment_lookup)
+        sortable["churn_sort"] = sortable["churn_30_to_60_prob"].fillna(0.0)
+        sortable["engagement_sort"] = sortable["re_engage_30d_prob"].fillna(
+            0.0)
+        sortable["points_sort"] = sortable["points_gap"].fillna(999999.0)
+
+        for rule in self.rules:
+            segment_id = rule["segment_id"]
+            subset = sortable[sortable["segment_id"] == segment_id]
+            if subset.empty:
+                continue
+            candidate = subset.sort_values(
+                ["churn_sort", "engagement_sort", "points_sort"],
+                ascending=[False, False, True],
+            ).iloc[0]
+            sample_ids.append(str(candidate["idSSO"]))
+
+        if len(sample_ids) >= 8:
+            return sample_ids[:8]
+
+        filler = sortable.sort_values(
+            ["churn_sort", "engagement_sort", "points_sort"],
+            ascending=[False, False, True],
+        )["idSSO"].astype(str).tolist()
+        for user_id in filler:
+            if user_id not in sample_ids:
+                sample_ids.append(user_id)
+            if len(sample_ids) >= 8:
+                break
+        return sample_ids
+
+    def _build_product_categories(self, training_artifacts: dict[str, Any]) -> pd.DataFrame:
+        codici = training_artifacts["tables_clean"]["codici"].copy()
+        prodotti = pd.read_csv(
+            self.project_root / "data" / "Anagrafica_prodotti_digital.csv"
+        )
+        codici["idSSO"] = codici["userId"].map(
+            training_artifacts["bridges"]["user_to_idsso"])
+        codici["EAN_str"] = codici["EAN"].astype(str)
+        prodotti["EANPROD_str"] = prodotti["EANPROD"].astype(
+            "Int64").astype(str)
+        codici = codici.merge(
+            prodotti[["EANPROD_str", "SEGMENTO_DES",
+                      "OCCUSO_DES", "TARGET_DES"]],
+            left_on="EAN_str",
+            right_on="EANPROD_str",
+            how="left",
+        )
+        codici["scan_item"] = codici.apply(self._extract_scan_category, axis=1)
+        valid_scans = codici.dropna(
+            subset=["idSSO", "scan_item"]).copy()
+        valid_scans = valid_scans[valid_scans["status"].eq("valid")]
+        item_counts = (
+            valid_scans.groupby(["idSSO", "scan_item"], as_index=False)
+            .size()
+            .sort_values(["idSSO", "size", "scan_item"], ascending=[True, False, True])
+        )
+        top_items = (
+            item_counts.groupby("idSSO")["scan_item"]
+            .apply(lambda values: "; ".join(values.head(3)))
+            .reset_index()
+            .rename(columns={"scan_item": "product_category"})
+        )
+        return top_items
+
+    def _build_prize_formats(self, training_artifacts: dict[str, Any]) -> pd.DataFrame:
+        premi = training_artifacts["tables_clean"]["premi"].copy()
+        premi["idSSO"] = premi["userid"].map(
+            training_artifacts["bridges"]["user_to_idsso"])
+        premi["created_at_premio"] = pd.to_datetime(
+            premi["created_at_premio"], errors="coerce")
+        latest_prizes = premi.dropna(subset=["idSSO"]).sort_values(
+            "created_at_premio"
+        )
+        latest_prizes = latest_prizes.drop_duplicates(
+            subset="idSSO", keep="last")
+        return latest_prizes[["idSSO", "formatPremio"]].rename(
+            columns={"formatPremio": "prize_format"})
+
+    @classmethod
+    def _extract_scan_category(cls, row: pd.Series) -> str | None:
+        for column in ("SEGMENTO_DES", "OCCUSO_DES", "TARGET_DES"):
+            value = _clean_text(row.get(column), fallback="")
+            if value:
+                return value
+
+        if _is_missing(row.get("infoCode")):
+            return None
+
+        try:
+            parsed = json.loads(str(row["infoCode"]))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return None
+
+        for key in ("linea", "categoria"):
+            value = _clean_text(parsed.get(key), fallback="")
+            if value:
+                return value
+
+        return None
 
     @staticmethod
-    def _points_text(points: float | None) -> str:
-        if points is None:
-            return "an unknown points balance"
-        return f"{points:,.0f} points"
+    def _mission_engagement_value(row: pd.Series) -> str:
+        mission_count = _clean_float(row["mission_count_90d"]) or 0.0
+        completed = _clean_float(row.get("missions_completed_60d")) or 0.0
+        if mission_count >= 2 or completed >= 1:
+            return "Mission-active"
+        if mission_count > 0:
+            return "Mission-curious"
+        return "Scan-led"
+
+    @staticmethod
+    def _education_clause(value: object) -> str:
+        tenure_days = _clean_int(value)
+        if tenure_days is not None and tenure_days < NEW_USER_TENURE_DAYS:
+            return (
+                " Add a short educational block that explains scanning and missions,"
+                " because the account is still new."
+            )
+        return ""
+
+    @staticmethod
+    def _render_template(template: str, context: dict[str, str]) -> str:
+        return template.format_map(context)
+
+    @staticmethod
+    def _physiological_line(row: pd.Series) -> str:
+        child_age = _clean_int(row["ETA_MM_BambinoTODAY"])
+        if _truthy_flag(row["physiological_churn"]):
+            return (
+                "Physiological churn is `Yes` because the user is already in the"
+                f" lifecycle transition window ({child_age} months)."
+            )
+        return (
+            "Physiological churn is `No`, so the engine continues to churn,"
+            " engagement, and points checks."
+        )
+
+    @staticmethod
+    def _score_line(
+        label: str,
+        score: float | None,
+        threshold: float,
+        *,
+        default_note: str,
+    ) -> str:
+        if score is None:
+            return f"{label} is not available. {default_note}"
+        state = "High" if score >= threshold else "Low"
+        return (
+            f"{label} is {_format_score(score)} ({state}) against the"
+            f" {threshold:.2f} split."
+        )
+
+    @staticmethod
+    def _points_line(row: pd.Series) -> str:
+        points_gap = _clean_float(row["points_gap"])
+        if points_gap is None:
+            return "Points gap is unknown, so the engine treats proximity as `Far`."
+        proximity = "Close" if _truthy_flag(row["points_close"]) else "Far"
+        return (
+            f"Points gap is {_format_points(points_gap)}, which is `{proximity}`"
+            f" relative to the {POINTS_CLOSE_THRESHOLD}-point trigger."
+        )
+
+    @staticmethod
+    def _last_scan_guidance(last_scan_days: int | None) -> str:
+        if last_scan_days is None:
+            return "Recency is missing, so keep the copy broadly welcoming."
+        if last_scan_days <= 14:
+            return "Recent scanners respond well to positive reinforcement and momentum language."
+        if last_scan_days <= 45:
+            return "Use a warm reminder that reconnects recent habit to the next reward."
+        return "Re-introduce the mechanic gently because the user has been away from scanning for a while."
+
+    @staticmethod
+    def _tenure_guidance(tenure_days: int | None) -> str:
+        if tenure_days is None:
+            return "Tenure is unknown, so avoid assuming deep product familiarity."
+        if tenure_days < NEW_USER_TENURE_DAYS:
+            return "Add onboarding context because the user may still be learning how scans and missions work."
+        return "The user is established enough that the message can focus on value rather than basics."
+
+    @staticmethod
+    def _prize_format_label(value: object, *, has_redeemed: bool) -> str:
+        prize_format = _clean_text(value, fallback="Unknown")
+        if prize_format == "Unknown" and not has_redeemed:
+            return "No redemption history yet"
+        return prize_format.replace("_", " ").title()

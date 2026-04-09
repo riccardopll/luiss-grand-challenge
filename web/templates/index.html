@@ -62,11 +62,11 @@
           <strong class="metric-value" id="metric-activity">-</strong>
         </article>
         <article class="metric-card">
-          <span class="metric-label">Churn Risk</span>
+          <span class="metric-label">Churn Score</span>
           <strong class="metric-value" id="metric-churn">-</strong>
         </article>
         <article class="metric-card">
-          <span class="metric-label">Re-engage Score</span>
+          <span class="metric-label">Re-engage 30d</span>
           <strong class="metric-value" id="metric-engagement">-</strong>
         </article>
       </section>
@@ -84,38 +84,36 @@
             <p class="card-kicker">Decision Logic</p>
           </div>
           <div class="logic-panels">
-            <section class="rule-card" id="churn-rule-card">
+            <section class="rule-card">
               <div class="rule-topline">
-                <span class="rule-name">Churn</span>
-                <span class="rule-chip" id="churn-score-chip">-</span>
+                <span class="rule-name">Segment Decision</span>
+                <span class="rule-chip" id="decision-chip">-</span>
               </div>
-              <p class="rule-summary" id="churn-summary"></p>
-              <p class="rule-meta" id="churn-meta"></p>
-              <ul class="rule-lines" id="churn-lines"></ul>
+              <p class="rule-summary" id="decision-summary"></p>
+              <p class="rule-meta" id="decision-meta"></p>
+              <ul class="rule-lines" id="decision-lines"></ul>
             </section>
 
-            <section class="rule-card" id="engagement-rule-card">
+            <section class="rule-card">
               <div class="rule-topline">
-                <span class="rule-name">Re-engage</span>
-                <span class="rule-chip" id="engagement-score-chip">-</span>
+                <span class="rule-name">Marketing Brief</span>
+                <span class="rule-chip" id="brief-chip">0 fields</span>
               </div>
-              <p class="rule-summary" id="engagement-summary"></p>
-              <p class="rule-meta" id="engagement-meta"></p>
-              <ul class="rule-lines" id="engagement-lines"></ul>
+              <div class="brief-list" id="brief-list"></div>
             </section>
           </div>
         </article>
 
         <article class="dash-card action-card">
           <div class="card-head">
-            <p class="card-kicker">CRM Action</p>
+            <p class="card-kicker">CRM Campaign</p>
             <h2 id="action-title">No active campaign</h2>
           </div>
           <div class="action-hero">
             <p class="action-summary" id="action-summary"></p>
             <div class="action-chips">
-              <span class="action-chip" id="action-channel">Channel: -</span>
-              <span class="action-chip" id="action-priority">Priority: -</span>
+              <span class="action-chip" id="action-segment">Segment: -</span>
+              <span class="action-chip" id="action-channel">Channels: -</span>
             </div>
           </div>
           <ul class="action-list" id="action-steps"></ul>
@@ -126,7 +124,6 @@
     <script>
       (() => {
         const initialPayload = {{ initial_payload | tojson }};
-        const initialUserId = {{ user_id | tojson }};
         const initialNotFound = {{ not_found | tojson }};
 
         const form = document.getElementById("lookup-form");
@@ -141,23 +138,20 @@
         const metricActivity = document.getElementById("metric-activity");
         const metricChurn = document.getElementById("metric-churn");
         const metricEngagement = document.getElementById("metric-engagement");
-
         const profileFacts = document.getElementById("profile-facts");
 
-        const churnScoreChip = document.getElementById("churn-score-chip");
-        const churnSummary = document.getElementById("churn-summary");
-        const churnMeta = document.getElementById("churn-meta");
-        const churnLines = document.getElementById("churn-lines");
+        const decisionChip = document.getElementById("decision-chip");
+        const decisionSummary = document.getElementById("decision-summary");
+        const decisionMeta = document.getElementById("decision-meta");
+        const decisionLines = document.getElementById("decision-lines");
 
-        const engagementScoreChip = document.getElementById("engagement-score-chip");
-        const engagementSummary = document.getElementById("engagement-summary");
-        const engagementMeta = document.getElementById("engagement-meta");
-        const engagementLines = document.getElementById("engagement-lines");
+        const briefChip = document.getElementById("brief-chip");
+        const briefList = document.getElementById("brief-list");
 
         const actionTitle = document.getElementById("action-title");
         const actionSummary = document.getElementById("action-summary");
+        const actionSegment = document.getElementById("action-segment");
         const actionChannel = document.getElementById("action-channel");
-        const actionPriority = document.getElementById("action-priority");
         const actionSteps = document.getElementById("action-steps");
 
         const hiddenClass = "hidden";
@@ -169,8 +163,6 @@
         const formatDays = (value) => (
           value === null || value === undefined ? "Unknown" : `${value} days ago`
         );
-
-        const titleize = (value) => (value || "-").replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
 
         const setLoading = (isLoading) => {
           document.body.classList.toggle("is-loading", isLoading);
@@ -203,9 +195,13 @@
           const factDescriptions = {
             Region: "Customer region associated with the latest available snapshot.",
             Lifecycle: "Child age bucket and observed age in months used for segmentation.",
+            "Physiological Churn": "Lifecycle transition users short-circuit the rest of the CRM rules.",
             "Points Balance": "Current loyalty points balance available to the customer.",
-            "Points Gap": "Estimated distance from the next relevant reward threshold in points.",
+            "Points Gap": "Exact distance from the next reward threshold.",
+            "Points Proximity": "Whether the user is within the 50-point CRM trigger window.",
             "Last Activity": "Days since the customer's latest tracked loyalty activity.",
+            "Mission Style": "Mission participation signal used to choose mission-led versus scan-led incentives.",
+            "Account Tenure": "Newer users may need educational copy in the campaign.",
             "Push Consent": "Whether the customer can receive push notifications.",
             "Email Consent": "Whether the customer can receive email communication.",
           };
@@ -213,9 +209,13 @@
           const facts = [
             ["Region", profile.region],
             ["Lifecycle", `${profile.child_age_bucket}${profile.child_age_months !== null ? ` (${profile.child_age_months} months)` : ""}`],
+            ["Physiological Churn", profile.physiological_churn ? "Yes" : "No"],
             ["Points Balance", formatPoints(profile.total_points)],
-            ["Points Gap", profile.points_gap_proxy !== null ? `${Math.round(profile.points_gap_proxy).toLocaleString()} pts` : "Unknown"],
+            ["Points Gap", formatPoints(profile.points_gap)],
+            ["Points Proximity", profile.points_proximity],
             ["Last Activity", formatDays(profile.days_since_last_activity)],
+            ["Mission Style", profile.mission_engagement],
+            ["Account Tenure", formatDays(profile.account_tenure_days)],
             ["Push Consent", profile.push_consent ? "Yes" : "No"],
             ["Email Consent", profile.email_consent ? "Yes" : "No"],
           ];
@@ -257,55 +257,64 @@
           });
         };
 
-        const renderRule = (rule, elements) => {
-          elements.chip.textContent = rule.score_label;
-          elements.summary.textContent = rule.summary;
-          elements.meta.textContent = `Rule ${rule.matched_rule} · Segment ${titleize(rule.segment)} · Action ${titleize(rule.action)}`;
-          renderList(elements.lines, rule.logic_lines);
+        const renderDecision = (output) => {
+          decisionChip.textContent = output.segment_id;
+          decisionSummary.textContent = output.summary;
+          decisionMeta.textContent = `Rule ${output.matched_rule} · Segment ${output.segment_name}`;
+          renderList(decisionLines, output.logic_lines);
         };
 
-        const renderAction = (action) => {
-          actionTitle.textContent = action.title;
-          actionSummary.textContent = action.summary;
-          actionChannel.textContent = `Channel: ${titleize(action.channel)}`;
-          actionPriority.textContent = `Priority: ${titleize(action.priority)}`;
-          renderList(actionSteps, action.next_steps);
+        const renderBrief = (brief) => {
+          const items = Object.values(brief || {});
+          briefChip.textContent = `${items.length} fields`;
+          briefList.innerHTML = "";
+
+          items.forEach((item) => {
+            const row = document.createElement("article");
+            row.className = "brief-item";
+
+            const label = document.createElement("p");
+            label.className = "brief-label";
+            label.textContent = item.label;
+
+            const value = document.createElement("p");
+            value.className = "brief-value";
+            value.textContent = item.value;
+
+            const note = document.createElement("p");
+            note.className = "brief-note";
+            note.textContent = item.guidance;
+
+            row.append(label, value, note);
+            briefList.appendChild(row);
+          });
         };
 
-        let currentPayload = null;
+        const renderAction = (output) => {
+          actionTitle.textContent = output.campaign;
+          actionSummary.textContent = output.action;
+          actionSegment.textContent = `Segment: ${output.segment_id}`;
+          actionChannel.textContent = `Channels: ${output.channels.join(", ")}`;
+          renderList(actionSteps, output.execution_notes);
+        };
 
         const renderPayload = (payload) => {
-          currentPayload = payload;
           metricsRow.classList.remove(hiddenClass);
           dashboardGrid.classList.remove(hiddenClass);
 
           metricRegion.textContent = payload.profile.region;
           metricActivity.textContent = formatDays(payload.profile.days_since_last_activity);
-          metricChurn.textContent = payload.profile.churn_risk_label;
-          metricEngagement.textContent = payload.profile.re_engage_label;
+          metricChurn.textContent = `${payload.profile.churn_score_label} (${payload.profile.churn_score === null ? "n/a" : payload.profile.churn_score.toFixed(2)})`;
+          metricEngagement.textContent = `${payload.profile.re_engage_label} (${payload.profile.re_engage30d === null ? "n/a" : payload.profile.re_engage30d.toFixed(2)})`;
 
           renderFacts(payload.profile);
-
-          renderRule(payload.churn, {
-            chip: churnScoreChip,
-            summary: churnSummary,
-            meta: churnMeta,
-            lines: churnLines,
-          });
-
-          renderRule(payload.engagement, {
-            chip: engagementScoreChip,
-            summary: engagementSummary,
-            meta: engagementMeta,
-            lines: engagementLines,
-          });
-
-          renderAction(payload.suggested_action);
+          renderDecision(payload.crm_output);
+          renderBrief(payload.crm_output.marketing_brief);
+          renderAction(payload.crm_output);
           setStatus(null);
         };
 
         const resetDashboard = (message = null) => {
-          currentPayload = null;
           metricsRow.classList.add(hiddenClass);
           dashboardGrid.classList.add(hiddenClass);
           setStatus(message, message ? "error" : "info");

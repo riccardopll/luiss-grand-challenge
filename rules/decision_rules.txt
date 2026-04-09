@@ -1,49 +1,30 @@
-# One rule per line. First match wins within each audience.
+# Ordered CRM rules. First match wins.
 # Format:
-# audience=<audience>|rule_name=<name>|condition=<pandas.eval expression>|segment=<segment>|action=<action>|recommended_channel=<channel>|priority=<priority>
+# rule_name=<name>|condition=<python/pandas expression>|segment_id=<id>|segment_name=<label>|campaign=<campaign>|action=<action>|summary=<summary>
 #
-# Rule design notes:
-# - Keep the model score as the main ranking signal.
-# - Only add a small set of support variables that stayed useful in the holdout.
-# - Churn support variables: is_near_graduation plus channel eligibility.
-# - Re-engagement support variables: days_since_last_activity, has_ever_redeemed, scan_count_60d, plus channel eligibility.
-# - Thresholds were picked after checking holdout behavior:
-#   - churn_30_to_60_prob >= 0.75 marks the strongest churn-risk pocket
-#   - re_engage_30d_prob >= 0.60 marks a hot audience
-#   - re_engage_30d_prob >= 0.40 marks a warm audience
+# Decision priority mirrors the CRM documentation:
+# 1. physiological_churn
+# 2. high_churn
+# 3. high_engagement
+# 4. points_close
+#
+# Variables exposed to the rule expressions:
+# - physiological_churn: 1 when the user is already in the lifecycle transition window
+# - high_churn: 1 when churn_score >= 0.50
+# - high_engagement: 1 when re_engage30d >= 0.50
+# - points_close: 1 when the user is within 50 points of the next reward
 
-# Why this exists: high churn score plus near graduation usually looks more like a natural lifecycle transition than a preventable drop-off, so the action stays light and low-cost.
-audience=churn|rule_name=transition_guardrail_push|condition=churn_30_to_60_prob >= 0.75 & is_near_graduation == 1 & channel_eligible_phone_push == 1|segment=physiological_transition|action=low_roi_transition_guardrail|recommended_channel=push|priority=medium
+# S1: lifecycle-driven exit users who should be converted into referral value rather than win-back.
+rule_name=physiological_referral|condition=physiological_churn == 1|segment_id=S1|segment_name=Physiological churn|segment_description=Users in the lifecycle transition window who should receive a referral-led exit campaign instead of a retention push.|campaign=Referral campaign|action=Use a loyalty exit message that rewards the user for referring a pregnant friend or new parent instead of trying to win them back.|summary=Lifecycle exit overrides every other signal, so the campaign should convert churn into referral value.
 
-# Why this exists: high churn score away from graduation is the clearest preventable-risk case, and push is the fastest high-priority channel when it is available.
-audience=churn|rule_name=preventable_push|condition=churn_30_to_60_prob >= 0.75 & is_near_graduation == 0 & channel_eligible_phone_push == 1|segment=preventable_churn|action=preventable_churn_core|recommended_channel=push|priority=high
+# S2: all non-physiological high-churn users consolidated into one rescue audience.
+rule_name=at_risk_rescue|condition=high_churn == 1|segment_id=S2|segment_name=At-risk rescue|segment_description=High-churn users who still fit the app lifecycle and should receive one strong rescue campaign rather than sparse micro-segments.|campaign=Double points rescue|action=Use a strong limited-window rescue incentive for every non-physiological high-churn user, regardless of engagement or points distance, because the smaller high-risk subsegments are too sparse to campaign separately.|summary=All non-physiological high-churn users are consolidated into one rescue segment to avoid over-fragmenting tiny audiences.
 
-# Why this exists: this is the same preventable high-risk case, but for users who cannot be reached by push and can still be reached by email.
-audience=churn|rule_name=preventable_email|condition=churn_30_to_60_prob >= 0.75 & is_near_graduation == 0 & channel_eligible_email == 1|segment=preventable_churn|action=preventable_churn_core|recommended_channel=email|priority=high
+# S3: healthy users with an immediate reward hook.
+rule_name=stable_close|condition=high_churn == 0 & points_close == 1|segment_id=S3|segment_name=Stable user, points close|segment_description=Low-churn users who are already near a reward threshold and only need a celebratory prize reminder.|campaign=Prize reminder|action=Keep the tone celebratory and remind the user how close they are to the next reward without adding urgency or rescue language.|summary=Low churn removes retention pressure, so the message can simply celebrate progress toward a prize.
 
-# Why this exists: medium churn scores are still risky on the holdout, but they do not justify the same urgency as the top-risk band, so they get a softer save action.
-audience=churn|rule_name=watchlist_email|condition=churn_30_to_60_prob >= 0.60 & channel_eligible_email == 1|segment=watchlist_churn|action=soft_save_nudge|recommended_channel=email|priority=medium
+# S4: engaged healthy users who are far from a reward and need acceleration, not rescue.
+rule_name=stable_active_far|condition=high_churn == 0 & points_close == 0 & high_engagement == 1|segment_id=S4|segment_name=Stable active, points far|segment_description=Low-churn engaged users who are far from a reward and should receive a warm acceleration offer to deepen engagement.|campaign={preferred_incentive_title}|action=Use a warm acceleration campaign that helps the user earn faster while they are already engaged with the app.|summary=The user is healthy and active, so the goal is to deepen engagement and accelerate reward progress rather than rescue retention.
 
-# Why this exists: some users score as risky but cannot be contacted, so the engine should surface the risk without pretending there is an outbound action.
-audience=churn|rule_name=high_risk_no_channel|condition=churn_30_to_60_prob >= 0.75|segment=high_risk_no_channel|action=no_action|recommended_channel=none|priority=low
-
-# Why this exists: everyone else falls back to monitoring only, which keeps the churn side simple and avoids over-targeting weak cases.
-audience=churn|rule_name=default_churn|condition=True|segment=monitor_only|action=no_action|recommended_channel=none|priority=low
-
-# Why this exists: a high re-engagement score plus activity in the last two weeks is the clearest hot-user pattern, so it gets the strongest mission-led action when push is available.
-audience=engagement|rule_name=hot_user_push|condition=re_engage_30d_prob >= 0.60 & days_since_last_activity <= 14 & channel_eligible_phone_push == 1|segment=hot_user|action=mission_bundle_nudge|recommended_channel=push|priority=high
-
-# Why this exists: this covers the same hot-user pattern when push is not available but email still is.
-audience=engagement|rule_name=hot_user_email|condition=re_engage_30d_prob >= 0.60 & days_since_last_activity <= 14 & channel_eligible_email == 1|segment=hot_user|action=mission_bundle_nudge|recommended_channel=email|priority=high
-
-# Why this exists: among warm users, prior redemption is a simple trust signal that makes reward reminders more credible than generic content.
-audience=engagement|rule_name=warm_loyalty_email|condition=re_engage_30d_prob >= 0.40 & has_ever_redeemed == 1 & channel_eligible_email == 1|segment=warm_user|action=reward_reminder|recommended_channel=email|priority=medium
-
-# Why this exists: scan-heavy users are still showing recent loyalty behavior, so a content or mission nudge is a good medium-priority follow-up when push is available.
-audience=engagement|rule_name=warm_scanner_push|condition=re_engage_30d_prob >= 0.40 & scan_count_60d >= 2 & channel_eligible_phone_push == 1|segment=warm_user|action=content_mission_nurture|recommended_channel=push|priority=medium
-
-# Why this exists: users with no usable channel should be labeled clearly so the engine does not suggest a campaign that cannot be executed.
-audience=engagement|rule_name=not_eligible|condition=channel_eligible_email == 0 & channel_eligible_phone_push == 0|segment=not_campaign_eligible|action=no_action|recommended_channel=none|priority=low
-
-# Why this exists: everyone else stays in a light-touch watchlist bucket, which keeps the engagement side broad but still controlled.
-audience=engagement|rule_name=default_engagement|condition=True|segment=watchlist|action=light_touch_nurture|recommended_channel=email|priority=low
+# S5: low-risk but passive users with no strong reward hook today.
+rule_name=stable_passive_far|condition=True|segment_id=S5|segment_name=Stable passive, points far|segment_description=Users with low churn risk but weak current momentum who need a gentle reactivation nudge rather than a rescue campaign.|campaign=Gentle re-activation|action=Use a light-touch reactivation message with a {preferred_incentive_lower} offer to restart habit without sounding urgent.{education_clause}|summary=The user is not at immediate churn risk, but they still need a gentle reason to return because no strong reward hook is present today.
