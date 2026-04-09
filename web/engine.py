@@ -385,6 +385,11 @@ class CRMDecisionEngine:
         prize_format = self._prize_format_label(
             row["prize_format"], has_redeemed=has_redeemed)
         return {
+            "physiological_churn": {
+                "label": "Physiological churn",
+                "value": "Yes" if _truthy_flag(row["physiological_churn"]) else "No",
+                "guidance": "When this is yes, lifecycle transition overrides the rest of the CRM decision tree.",
+            },
             "product_category": {
                 "label": "Top product categories",
                 "value": _clean_text(
@@ -421,10 +426,10 @@ class CRMDecisionEngine:
                 "value": _format_days(tenure_days),
                 "guidance": self._tenure_guidance(tenure_days),
             },
-            "region": {
-                "label": "Region",
-                "value": _clean_text(row["Regione"]),
-                "guidance": "Localise the opening line or community framing when that makes the message feel less broadcast.",
+            "lifecycle": {
+                "label": "Lifecycle",
+                "value": f"{_clean_text(row['child_age_bucket'])}{f' ({_clean_int(row['ETA_MM_BambinoTODAY'])} months)' if _clean_int(row['ETA_MM_BambinoTODAY']) is not None else ''}",
+                "guidance": "Use lifecycle context to keep the message relevant to the customer's current family stage.",
             },
         }
 

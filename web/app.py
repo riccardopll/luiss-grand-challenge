@@ -22,6 +22,7 @@ engine = CRMDecisionEngine(
     artifacts_dir=PROJECT_ROOT / "artifacts",
     rules_path=PROJECT_ROOT / "rules" / "decision_rules.txt",
 )
+STATIC_VERSION = str(int((BASE_DIR / "static" / "styles.css").stat().st_mtime))
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -41,6 +42,7 @@ def index(request: Request, user_id: str | None = Query(default=None)) -> HTMLRe
             "not_found": not_found,
             "sample_user_ids": engine.sample_user_ids,
             "latest_reference_date": engine.latest_reference_date,
+            "static_version": STATIC_VERSION,
         },
     )
 
