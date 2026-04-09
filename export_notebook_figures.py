@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 import os
 from pathlib import Path
 import xml.etree.ElementTree as ET
@@ -11,16 +12,37 @@ from nbclient import NotebookClient
 import plotly.graph_objects as go
 import plotly.io as pio
 
-EXPORT_TARGETS = [
-    "01-dataset-size-by-table.svg",
-    "02-monthly-active-users-trend.svg",
-    "03-monthly-event-intensity.svg",
-    "04-total-points-distribution.svg",
-    "05-lifecycle-stage-mix.svg",
-    "06-regional-user-footprint-1.svg",
-    "07-regional-user-footprint-2.svg",
-    "08-monthly-label-dynamics.svg",
-]
+
+@dataclass(frozen=True)
+class ExportJob:
+    notebook: Path
+    targets: list[str]
+
+
+EXPORT_JOBS = {
+    "eda.ipynb": ExportJob(
+        notebook=Path("eda.ipynb"),
+        targets=[
+            "01-dataset-size-by-table.svg",
+            "02-monthly-active-users-trend.svg",
+            "03-monthly-event-intensity.svg",
+            "04-total-points-distribution.svg",
+            "05-lifecycle-stage-mix.svg",
+            "06-regional-user-footprint-1.svg",
+            "07-regional-user-footprint-2.svg",
+            "08-monthly-label-dynamics.svg",
+        ],
+    ),
+    "final.ipynb": ExportJob(
+        notebook=Path("final.ipynb"),
+        targets=[
+            "09-validation-metric-output.svg",
+            "10-model-family-check.svg",
+            "11-churn-re-engagement-calibration.svg",
+            "12-crm-segment-distribution.svg",
+        ],
+    ),
+}
 SVG_NS = "http://www.w3.org/2000/svg"
 XLINK_NS = "http://www.w3.org/1999/xlink"
 ET.register_namespace("", SVG_NS)
@@ -30,15 +52,18 @@ ET.register_namespace("xlink", XLINK_NS)
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Extract Plotly figures from an executed notebook and export them "
-            "to SVG files with Kaleido."
+            "Extract Plotly figures from the project notebooks and export them "
+            "to rounded-corner SVG files."
         )
     )
     parser.add_argument(
         "--notebook",
         type=Path,
-        default=Path("eda.ipynb"),
-        help="Path to the executed notebook.",
+        default=None,
+        help=(
+            "Optional notebook path. When omitted, export both the EDA and final "
+            "notebook figure sets."
+        ),
     )
     parser.add_argument(
         "--output-dir",
@@ -47,6 +72,20 @@ def parse_args() -> argparse.Namespace:
         help="Directory where exported images will be written.",
     )
     return parser.parse_args()
+
+
+def resolve_jobs(selected_notebook: Path | None) -> list[ExportJob]:
+    if selected_notebook is None:
+        return [EXPORT_JOBS["eda.ipynb"], EXPORT_JOBS["final.ipynb"]]
+
+    notebook_name = selected_notebook.name
+    if notebook_name not in EXPORT_JOBS:
+        supported = ", ".join(sorted(EXPORT_JOBS))
+        raise ValueError(
+            f"Unsupported notebook {
+                selected_notebook}. Supported notebooks: {supported}."
+        )
+    return [ExportJob(notebook=selected_notebook, targets=EXPORT_JOBS[notebook_name].targets)]
 
 
 def collect_plotly_figures(nb: nbformat.NotebookNode) -> list[go.Figure]:
@@ -83,7 +122,8 @@ def extract_plotly_figures(notebook_path: Path) -> list[go.Figure]:
         return figures
 
     raise ValueError(
-        "No Plotly figures found in notebook outputs even after execution."
+        f"No Plotly figures found in {
+            notebook_path} outputs even after execution."
     )
 
 
@@ -124,14 +164,14 @@ def round_svg_corners(svg_path: Path, *, width: int, height: int, radius: int) -
         style = background.get("style", "")
         background.set(
             "style",
-            style.replace("fill: rgb(0, 0, 0); fill-opacity: 0;",
-                          "fill: rgb(255, 255, 255); fill-opacity: 1;"),
+            style.replace(
+                "fill: rgb(0, 0, 0); fill-opacity: 0;",
+                "fill: rgb(255, 255, 255); fill-opacity: 1;",
+            ),
         )
 
     content_group = ET.Element(
-        f"{{{SVG_NS}}}g",
-        {"clip-path": f"url(#{clip_id})"},
-    )
+        f"{{{SVG_NS}}}g", {"clip-path": f"url(#{clip_id})"})
     move_children = [child for child in list(root) if child is not defs]
     for child in move_children:
         root.remove(child)
@@ -147,7 +187,7 @@ def infer_figure_dimensions(figure: go.Figure, *, filename: str) -> tuple[int, i
     if width is None or height is None:
         raise ValueError(
             f"Figure for {filename} is missing layout width/height. "
-            "Set the dimensions in eda.ipynb before exporting."
+            "Set the dimensions in the notebook before exporting."
         )
     return int(width), int(height)
 
@@ -179,7 +219,6 @@ def export_figures(
         )
 
     output_dir.mkdir(parents=True, exist_ok=True)
-
     pio.defaults.default_format = "svg"
 
     max_workers = min(len(figures), os.cpu_count() or 1)
@@ -197,12 +236,12 @@ def export_figures(
 
 def main() -> None:
     args = parse_args()
-    figures = extract_plotly_figures(args.notebook)
-    export_figures(
-        figures,
-        args.output_dir,
-        EXPORT_TARGETS,
-    )
+    jobs = resolve_jobs(args.notebook)
+
+    for job in jobs:
+        print(f"exporting figures from {job.notebook}")
+        figures = extract_plotly_figures(job.notebook)
+        export_figures(figures, args.output_dir, job.targets)
 
 
 if __name__ == "__main__":
