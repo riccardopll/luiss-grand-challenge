@@ -39,7 +39,7 @@ class UserPayload:
     reference_date: str
     profile: dict[str, object]
     churn: RuleView
-    redemption: RuleView
+    engagement: RuleView
     suggested_action: SuggestedAction
 
 
@@ -127,27 +127,27 @@ class CRMDecisionEngine:
         churn["idSSO"] = churn["idSSO"].astype(str)
         self.churn = churn
 
-        redemption = pd.read_csv(
-            self.artifacts_dir / "final" / "redemption_engine_current.csv")
-        redemption["idSSO"] = redemption["idSSO"].astype(str)
-        self.redemption = redemption
+        engagement = pd.read_csv(
+            self.artifacts_dir / "final" / "engagement_engine_current.csv")
+        engagement["idSSO"] = engagement["idSSO"].astype(str)
+        self.engagement = engagement
 
         sample_frame = churn.merge(
-            redemption,
+            engagement,
             on="idSSO",
             how="inner",
-            suffixes=("_churn", "_redemption"),
+            suffixes=("_churn", "_engagement"),
         )
         if sample_frame.empty:
             self.sample_user_ids = sorted(churn["idSSO"].head(6).tolist())
         else:
-            sample_frame["priority_rank"] = sample_frame[["priority_churn", "priority_redemption"]].apply(
+            sample_frame["priority_rank"] = sample_frame[["priority_churn", "priority_engagement"]].apply(
                 lambda row: max(_priority_rank(
                     str(row.iloc[0])), _priority_rank(str(row.iloc[1]))),
                 axis=1,
             )
             sample_frame = sample_frame.sort_values(
-                ["priority_rank", "churn_30_to_60_prob", "redeem_30d_prob"],
+                ["priority_rank", "churn_30_to_60_prob", "re_engage_30d_prob"],
                 ascending=[False, False, False],
             )
             self.sample_user_ids = sample_frame["idSSO"].head(6).tolist()
@@ -172,21 +172,21 @@ class CRMDecisionEngine:
 
         profile_row = snapshot_match.iloc[0]
         churn_row = self._first_row(self.churn, user_id)
-        redemption_row = self._first_row(self.redemption, user_id)
+        engagement_row = self._first_row(self.engagement, user_id)
 
-        profile = self._build_profile(profile_row, churn_row, redemption_row)
+        profile = self._build_profile(profile_row, churn_row, engagement_row)
         churn_view = self._build_churn_view(profile_row, churn_row)
-        redemption_view = self._build_redemption_view(
-            profile_row, redemption_row)
+        engagement_view = self._build_engagement_view(
+            profile_row, engagement_row)
         suggested_action = self._build_suggested_action(
-            profile_row, churn_view, redemption_view)
+            profile_row, churn_view, engagement_view)
 
         return UserPayload(
             user_id=user_id,
             reference_date=self.latest_reference_date,
             profile=profile,
             churn=churn_view,
-            redemption=redemption_view,
+            engagement=engagement_view,
             suggested_action=suggested_action,
         )
 
@@ -201,12 +201,12 @@ class CRMDecisionEngine:
         self,
         profile_row: pd.Series,
         churn_row: pd.Series | None,
-        redemption_row: pd.Series | None,
+        engagement_row: pd.Series | None,
     ) -> dict[str, object]:
         churn_prob = _clean_float(
             churn_row["churn_30_to_60_prob"]) if churn_row is not None else None
-        redeem_prob = _clean_float(
-            redemption_row["redeem_30d_prob"]) if redemption_row is not None else None
+        engagement_prob = _clean_float(
+            engagement_row["re_engage_30d_prob"]) if engagement_row is not None else None
         total_points = _clean_float(profile_row["totalPoints"])
         return {
             "region": _clean_text(profile_row["Regione"]),
@@ -216,7 +216,7 @@ class CRMDecisionEngine:
             "total_points": total_points,
             "points_gap_proxy": _clean_float(profile_row["points_gap_proxy"]),
             "churn_risk_label": _score_band(churn_prob),
-            "redeem_propensity_label": _score_band(redeem_prob),
+            "re_engage_label": _score_band(engagement_prob),
             "push_consent": bool(_clean_int(profile_row["channel_eligible_phone_push"]) == 1),
             "email_consent": bool(_clean_int(profile_row["channel_eligible_email"]) == 1),
         }
@@ -261,16 +261,16 @@ class CRMDecisionEngine:
                 rule["condition"], profile_row, churn_row),
         )
 
-    def _build_redemption_view(
+    def _build_engagement_view(
         self,
         profile_row: pd.Series,
-        redemption_row: pd.Series | None,
+        engagement_row: pd.Series | None,
     ) -> RuleView:
-        if redemption_row is None:
+        if engagement_row is None:
             return RuleView(
-                audience="redemption",
+                audience="engagement",
                 matched_rule="not_scored",
-                condition="user needs points and recent activity to enter reward activation",
+                condition="user needs historical activity to enter the re-engagement audience",
                 segment="not_eligible",
                 action="no_action",
                 channel="none",
@@ -278,44 +278,43 @@ class CRMDecisionEngine:
                 score=None,
                 score_label="Not scored",
                 eligible=False,
-                summary="User is outside the current reward-activation audience.",
+                summary="User is outside the current re-engagement audience.",
                 logic_lines=[
-                    f"Points balance is {self._points_text(
-                        _clean_float(profile_row['totalPoints']))}.",
-                    "Redemption scoring is reserved for points users with activity in the last 90 days.",
+                    f"Latest activity is {_clean_int(profile_row['days_since_last_activity'])} days ago.",
+                    "Re-engagement scoring is reserved for users with observed historical activity.",
                 ],
             )
 
-        matched_rule = _clean_text(redemption_row["matched_rule"])
-        rule = self.rules[("redemption", matched_rule)]
-        score = _clean_float(redemption_row["redeem_30d_prob"])
+        matched_rule = _clean_text(engagement_row["matched_rule"])
+        rule = self.rules[("engagement", matched_rule)]
+        score = _clean_float(engagement_row["re_engage_30d_prob"])
         return RuleView(
-            audience="redemption",
+            audience="engagement",
             matched_rule=matched_rule,
             condition=rule["condition"],
-            segment=_clean_text(redemption_row["activation_segment"]),
-            action=_clean_text(redemption_row["recommended_action"]),
-            channel=_clean_text(redemption_row["recommended_channel"]),
-            priority=_clean_text(redemption_row["priority"]),
+            segment=_clean_text(engagement_row["engagement_segment"]),
+            action=_clean_text(engagement_row["recommended_action"]),
+            channel=_clean_text(engagement_row["recommended_channel"]),
+            priority=_clean_text(engagement_row["priority"]),
             score=score,
             score_label=_score_band(score),
             eligible=True,
             summary=self._summarize_rule(
-                "redemption", matched_rule, redemption_row),
+                "engagement", matched_rule, engagement_row),
             logic_lines=self._logic_lines(
-                rule["condition"], profile_row, redemption_row),
+                rule["condition"], profile_row, engagement_row),
         )
 
     def _build_suggested_action(
         self,
         profile_row: pd.Series,
         churn: RuleView,
-        redemption: RuleView,
+        engagement: RuleView,
     ) -> SuggestedAction:
         points_gap = _clean_float(profile_row["points_gap_proxy"]) or 0.0
 
-        if churn.eligible and redemption.eligible and _priority_rank(churn.priority) >= 2 and points_gap <= 2000:
-            channel = churn.channel if churn.channel != "none" else redemption.channel
+        if churn.eligible and engagement.eligible and _priority_rank(churn.priority) >= 2 and points_gap <= 2000:
+            channel = churn.channel if churn.channel != "none" else engagement.channel
             return SuggestedAction(
                 title="Reward-led reactivation",
                 channel=channel,
@@ -327,12 +326,12 @@ class CRMDecisionEngine:
                         channel} today with a reward-focused reactivation message.",
                     "Reference the points balance or reward threshold to make the return value concrete.",
                     f"Route the user into `{churn.action}` with `{
-                        redemption.action}` as the creative angle.",
+                        engagement.action}` as the creative angle.",
                 ],
             )
 
         chosen = churn if _priority_rank(churn.priority) >= _priority_rank(
-            redemption.priority) else redemption
+            engagement.priority) else engagement
         actionable = chosen.eligible and chosen.channel != "none" and chosen.action not in {
             "no_action",
             "insufficient_channel_eligibility",
@@ -360,7 +359,7 @@ class CRMDecisionEngine:
         if matched_rule.startswith("default"):
             if audience == "churn":
                 return "No higher-priority churn rule matched, so the fallback retention stance applies."
-            return "No tighter redemption trigger matched, so the default reward reminder applies."
+            return "No tighter re-engagement trigger matched, so the default nurture action applies."
         if audience == "churn":
             return (
                 f"Matched `{
@@ -370,7 +369,7 @@ class CRMDecisionEngine:
             )
         return (
             f"Matched `{
-                matched_rule}` because the user fits the current reward-activation scenario "
+                matched_rule}` because the user fits the current re-engagement scenario "
             f"for `{_clean_text(rule_row['recommended_channel'])}` outreach."
         )
 
@@ -394,14 +393,14 @@ class CRMDecisionEngine:
         lines = []
         churn_prob = _clean_float(rule_row.get("churn_30_to_60_prob")) if isinstance(
             rule_row, pd.Series) else None
-        redeem_prob = _clean_float(rule_row.get("redeem_30d_prob")) if isinstance(
+        engagement_prob = _clean_float(rule_row.get("re_engage_30d_prob")) if isinstance(
             rule_row, pd.Series) else None
         if churn_prob is not None:
             lines.append(f"Churn probability is {
                          churn_prob:.1%}, below the strongest save-rule thresholds.")
-        if redeem_prob is not None:
-            lines.append(f"Redeem probability is {
-                         redeem_prob:.1%}, so fallback reward messaging is sufficient.")
+        if engagement_prob is not None:
+            lines.append(f"Re-engagement probability is {
+                         engagement_prob:.1%}, so a light nurture action is sufficient.")
         if not lines:
             lines.append(
                 "No stronger rule condition was satisfied in the latest snapshot.")
@@ -428,9 +427,9 @@ class CRMDecisionEngine:
         if field == "churn_30_to_60_prob":
             current = _clean_float(current_value) or 0.0
             return f"Churn probability is {current:.1%}, which satisfies `{field} {operator} {float(threshold):.2f}`."
-        if field == "redeem_30d_prob":
+        if field == "re_engage_30d_prob":
             current = _clean_float(current_value) or 0.0
-            return f"Redeem probability is {current:.1%}, which satisfies `{field} {operator} {float(threshold):.2f}`."
+            return f"Re-engagement probability is {current:.1%}, which satisfies `{field} {operator} {float(threshold):.2f}`."
         if field == "points_gap_proxy":
             current = _clean_float(current_value) or 0.0
             return f"Points gap is {current:,.0f}, matching `{field} {operator} {int(float(threshold))}`."

@@ -66,8 +66,8 @@
           <strong class="metric-value" id="metric-churn">-</strong>
         </article>
         <article class="metric-card">
-          <span class="metric-label">Redeem Propensity</span>
-          <strong class="metric-value" id="metric-redemption">-</strong>
+          <span class="metric-label">Re-engage Score</span>
+          <strong class="metric-value" id="metric-engagement">-</strong>
         </article>
       </section>
 
@@ -94,14 +94,14 @@
               <ul class="rule-lines" id="churn-lines"></ul>
             </section>
 
-            <section class="rule-card" id="redemption-rule-card">
+            <section class="rule-card" id="engagement-rule-card">
               <div class="rule-topline">
-                <span class="rule-name">Redemption</span>
-                <span class="rule-chip" id="redemption-score-chip">-</span>
+                <span class="rule-name">Re-engage</span>
+                <span class="rule-chip" id="engagement-score-chip">-</span>
               </div>
-              <p class="rule-summary" id="redemption-summary"></p>
-              <p class="rule-meta" id="redemption-meta"></p>
-              <ul class="rule-lines" id="redemption-lines"></ul>
+              <p class="rule-summary" id="engagement-summary"></p>
+              <p class="rule-meta" id="engagement-meta"></p>
+              <ul class="rule-lines" id="engagement-lines"></ul>
             </section>
           </div>
         </article>
@@ -140,7 +140,7 @@
         const metricRegion = document.getElementById("metric-region");
         const metricActivity = document.getElementById("metric-activity");
         const metricChurn = document.getElementById("metric-churn");
-        const metricRedemption = document.getElementById("metric-redemption");
+        const metricEngagement = document.getElementById("metric-engagement");
 
         const profileFacts = document.getElementById("profile-facts");
 
@@ -149,10 +149,10 @@
         const churnMeta = document.getElementById("churn-meta");
         const churnLines = document.getElementById("churn-lines");
 
-        const redemptionScoreChip = document.getElementById("redemption-score-chip");
-        const redemptionSummary = document.getElementById("redemption-summary");
-        const redemptionMeta = document.getElementById("redemption-meta");
-        const redemptionLines = document.getElementById("redemption-lines");
+        const engagementScoreChip = document.getElementById("engagement-score-chip");
+        const engagementSummary = document.getElementById("engagement-summary");
+        const engagementMeta = document.getElementById("engagement-meta");
+        const engagementLines = document.getElementById("engagement-lines");
 
         const actionTitle = document.getElementById("action-title");
         const actionSummary = document.getElementById("action-summary");
@@ -282,7 +282,7 @@
           metricRegion.textContent = payload.profile.region;
           metricActivity.textContent = formatDays(payload.profile.days_since_last_activity);
           metricChurn.textContent = payload.profile.churn_risk_label;
-          metricRedemption.textContent = payload.profile.redeem_propensity_label;
+          metricEngagement.textContent = payload.profile.re_engage_label;
 
           renderFacts(payload.profile);
 
@@ -293,11 +293,11 @@
             lines: churnLines,
           });
 
-          renderRule(payload.redemption, {
-            chip: redemptionScoreChip,
-            summary: redemptionSummary,
-            meta: redemptionMeta,
-            lines: redemptionLines,
+          renderRule(payload.engagement, {
+            chip: engagementScoreChip,
+            summary: engagementSummary,
+            meta: engagementMeta,
+            lines: engagementLines,
           });
 
           renderAction(payload.suggested_action);
