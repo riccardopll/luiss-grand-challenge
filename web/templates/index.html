@@ -135,7 +135,7 @@
 
           <div class="side-column">
             <article class="dash-card brief-card">
-              <div class="card-head compact-head">
+              <div class="card-head">
                 <div>
                   <p class="section-kicker">Marketing brief</p>
                 </div>
@@ -222,6 +222,17 @@
         const actionPills = document.getElementById("action-pills");
 
         const hiddenClass = "hidden";
+        const briefOrder = [
+          "physiological_churn",
+          "product_category",
+          "points_gap",
+          "prize_format",
+          "mission_engagement",
+          "last_scan_days_ago",
+          "has_ever_redeemed",
+          "account_tenure_days",
+          "lifecycle",
+        ];
 
         const setTopNavbarId = (userId) => {
           const cleanId = (userId || "").trim();
@@ -252,10 +263,6 @@
           document.body.classList.remove("is-modal-open");
           openSearchModalButton.focus();
         };
-
-        const formatPoints = (value) => (
-          value === null || value === undefined ? "Unknown" : `${Math.round(value).toLocaleString()} pts`
-        );
 
         const formatDays = (value) => (
           value === null || value === undefined ? "Unknown" : `${value} days ago`
@@ -300,7 +307,9 @@
         };
 
         const renderBrief = (brief) => {
-          const items = Object.values(brief || {});
+          const items = briefOrder
+            .map((key) => brief?.[key])
+            .filter((item) => item !== undefined);
           briefList.innerHTML = "";
 
           items.forEach((item) => {
@@ -358,10 +367,6 @@
           }
         };
 
-        const renderSession = (payload) => {
-          setTopNavbarId(payload.user_id);
-        };
-
         const renderPayload = (payload) => {
           metricsRow.classList.remove(hiddenClass);
           dashboardGrid.classList.remove(hiddenClass);
@@ -376,7 +381,7 @@
             `Last scan: ${formatDays(payload.profile.days_since_last_scan)}`
           );
 
-          renderSession(payload);
+          setTopNavbarId(payload.user_id);
           renderDecision(payload.crm_output);
           renderBrief(payload.crm_output.marketing_brief);
           renderAction(payload.crm_output, payload.profile);

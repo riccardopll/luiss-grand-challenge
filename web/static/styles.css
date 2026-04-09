@@ -118,10 +118,7 @@ input {
 .nav-label,
 .section-kicker,
 .metric-label,
-.meta-label,
-.spotlight-label,
-.brief-label,
-.facts-grid dt {
+.brief-label {
   margin: 0;
   font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
   font-size: 0.82rem;
@@ -237,13 +234,6 @@ input {
   display: block;
   margin-top: 8px;
   font-size: 1rem;
-}
-
-.sidebar-footer span {
-  display: block;
-  margin-top: 4px;
-  color: var(--text-soft);
-  font-size: 0.92rem;
 }
 
 .workspace {
@@ -415,13 +405,8 @@ input {
   line-height: 1.06;
 }
 
-.compact-head h2 {
-  font-size: 1.2rem;
-}
-
 .decision-chip,
-.action-chip,
-.brief-chip {
+.action-chip {
   display: inline-flex;
   align-items: center;
   border-radius: 999px;
@@ -435,8 +420,7 @@ input {
 }
 
 .action-summary,
-.logic-summary,
-.logic-meta {
+.logic-summary {
   color: var(--text-soft);
 }
 
@@ -457,14 +441,7 @@ input {
   line-height: 1.65;
 }
 
-.logic-meta {
-  margin: 10px 0 0;
-  font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
-  font-size: 0.8rem;
-}
-
-.rule-lines,
-.action-list {
+.rule-lines {
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -473,8 +450,7 @@ input {
   list-style: none;
 }
 
-.rule-lines li,
-.action-list li {
+.rule-lines li {
   position: relative;
   padding: 14px 14px 14px 38px;
   border: 1px solid var(--line);
@@ -483,8 +459,7 @@ input {
   line-height: 1.6;
 }
 
-.rule-lines li::before,
-.action-list li::before {
+.rule-lines li::before {
   content: "";
   position: absolute;
   left: 16px;
@@ -496,39 +471,10 @@ input {
   transform: translateY(-50%);
 }
 
-.facts-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  margin: 18px 0 0;
-}
-
-.fact-row,
 .brief-item {
   border: 1px solid var(--line);
   border-radius: 16px;
   background: var(--panel-soft);
-}
-
-.fact-row {
-  padding: 14px 16px;
-}
-
-.facts-grid dt {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.facts-grid dd {
-  margin: 10px 0 0;
-  font-size: 0.98rem;
-  font-weight: 600;
-  line-height: 1.45;
-}
-
-.fact-term {
-  position: relative;
 }
 
 .fact-tooltip-trigger {
@@ -676,7 +622,6 @@ body.is-loading .workspace {
   cursor: progress;
 }
 
-body.is-loading .hero-card,
 body.is-loading .metrics-row,
 body.is-loading .dashboard-grid {
   opacity: 0.75;
@@ -741,7 +686,6 @@ body.is-loading .dashboard-grid {
 
   .lookup-row,
   .metrics-row,
-  .facts-grid,
   .sample-list {
     grid-template-columns: 1fr;
   }

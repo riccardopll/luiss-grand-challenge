@@ -12,28 +12,21 @@ CHURN_THRESHOLD = 0.5
 ENGAGEMENT_THRESHOLD = 0.5
 POINTS_CLOSE_THRESHOLD = 50
 NEW_USER_TENURE_DAYS = 90
-ALL_CHANNELS = ["email", "push"]
 
 
 @dataclass
 class CRMOutput:
-    matched_rule: str
-    condition: str
     segment_id: str
     segment_name: str
     campaign: str
     action: str
-    channels: list[str]
-    summary: str
     logic_lines: list[str]
-    execution_notes: list[str]
     marketing_brief: dict[str, dict[str, str]]
 
 
 @dataclass
 class UserPayload:
     user_id: str
-    reference_date: str
     profile: dict[str, object]
     crm_output: CRMOutput
 
@@ -219,7 +212,6 @@ class CRMDecisionEngine:
         row = match.iloc[0]
         return UserPayload(
             user_id=user_id,
-            reference_date=self.latest_reference_date,
             profile=self._build_profile(row),
             crm_output=self._build_crm_output(row),
         )
@@ -227,24 +219,15 @@ class CRMDecisionEngine:
     def _build_profile(self, row: pd.Series) -> dict[str, object]:
         churn_score = _clean_float(row["churn_30_to_60_prob"])
         engagement_score = _clean_float(row["re_engage_30d_prob"])
-        points_gap = _clean_float(row["points_gap"])
         return {
             "region": _clean_text(row["Regione"]),
-            "child_age_bucket": _clean_text(row["child_age_bucket"]),
-            "child_age_months": _clean_int(row["ETA_MM_BambinoTODAY"]),
             "days_since_last_activity": _clean_int(row["days_since_last_activity"]),
             "days_since_last_scan": _clean_int(row["days_since_last_scan"]),
-            "total_points": _clean_float(row["totalPoints"]),
-            "points_gap": points_gap,
-            "points_proximity": "Close" if _truthy_flag(row["points_close"]) else "Far",
-            "physiological_churn": _truthy_flag(row["physiological_churn"]),
             "churn_score": churn_score,
             "churn_score_label": _score_state(churn_score, CHURN_THRESHOLD),
             "re_engage30d": engagement_score,
             "re_engage_label": _score_state(
                 engagement_score, ENGAGEMENT_THRESHOLD),
-            "mission_engagement": _clean_text(row["mission_engagement"]),
-            "account_tenure_days": _clean_int(row["tenure_days"]),
             "push_consent": _truthy_flag(row["channel_eligible_phone_push"]),
             "email_consent": _truthy_flag(row["channel_eligible_email"]),
         }
@@ -253,16 +236,11 @@ class CRMDecisionEngine:
         rule = self._match_rule(row)
         template_context = self._template_context(row)
         return CRMOutput(
-            matched_rule=rule["rule_name"],
-            condition=rule["condition"],
             segment_id=rule["segment_id"],
             segment_name=rule["segment_name"],
             campaign=self._render_template(rule["campaign"], template_context),
             action=self._render_template(rule["action"], template_context),
-            channels=ALL_CHANNELS.copy(),
-            summary=self._render_template(rule["summary"], template_context),
             logic_lines=self._build_logic_lines(row, rule),
-            execution_notes=self._build_execution_notes(row, rule),
             marketing_brief=self._build_marketing_brief(row),
         )
 
@@ -329,53 +307,6 @@ class CRMDecisionEngine:
             f"First matching rule in priority order: `{rule['rule_name']}` -> {rule['segment_id']}."
         )
         return lines
-
-    def _build_execution_notes(
-        self,
-        row: pd.Series,
-        rule: dict[str, str],
-    ) -> list[str]:
-        notes = [
-            "Launch on both email and push to keep the CRM output channel-consistent."]
-        segment_id = rule["segment_id"]
-        points_gap = _clean_float(row["points_gap"])
-
-        if points_gap is not None and segment_id in {"S1", "S3", "S5"}:
-            notes.append(
-                f"State the exact reward gap: {_format_points(points_gap)}.")
-
-        if segment_id in {"S2", "S6", "S7"}:
-            notes.append(
-                f"Use a {_clean_text(row['preferred_incentive_lower'])} mechanic because the user's mission history points in that direction."
-            )
-
-        if segment_id == "S4":
-            notes.append(
-                "Use a short time window and urgent rescue framing to restart the scanning habit."
-            )
-
-        if segment_id == "S0":
-            notes.append(
-                "Frame the reward as a thank-you for past loyalty, then pivot to referral acquisition."
-            )
-
-        if not _truthy_flag(row["has_ever_redeemed"]):
-            notes.append(
-                "Include one line on how redemption works because the user has not redeemed before."
-            )
-
-        tenure_days = _clean_int(row["tenure_days"])
-        if tenure_days is not None and tenure_days < NEW_USER_TENURE_DAYS:
-            notes.append(
-                "Add onboarding context because the account is still under 90 days old."
-            )
-
-        product_category = _clean_text(
-            row["product_category"], fallback="No scan history yet")
-        notes.append(
-            f"Anchor the creative in the user's top product categories: {product_category}."
-        )
-        return notes
 
     def _build_marketing_brief(self, row: pd.Series) -> dict[str, dict[str, str]]:
         points_gap = _clean_float(row["points_gap"])
