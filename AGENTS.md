@@ -1,7 +1,6 @@
 # Project Notes
 
 - `data/`: local project datasets used for EDA and modeling inputs.
-- `docs/`: project documentation, specs, and presentation/planning notes.
 - Graphs must be presentation-friendly (clear labels, readable styling, and clean layout).
 - After every code change involving graphs, re-run the relevant Jupyter cell(s), inspect notebook output, and verify the graph output.
 - Do not run `task export` unless the user explicitly asks for it.

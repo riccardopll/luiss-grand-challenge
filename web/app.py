@@ -18,7 +18,7 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 engine = CRMDecisionEngine(
     project_root=PROJECT_ROOT,
     artifacts_dir=PROJECT_ROOT / "artifacts",
-    rules_path=PROJECT_ROOT / "rules" / "decision_rules.txt",
+    rules_path=PROJECT_ROOT / "decision_rules.txt",
 )
 STATIC_VERSION = str(int((BASE_DIR / "static" / "styles.css").stat().st_mtime))
 

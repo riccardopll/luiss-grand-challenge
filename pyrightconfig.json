@@ -6,7 +6,6 @@
   "exclude": [
     ".venv",
     "data",
-    "docs",
     "**/node_modules",
     "**/__pycache__",
     "**/.*"
