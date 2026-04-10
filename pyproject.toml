@@ -1,5 +1,5 @@
 [tool.taskipy.tasks]
-lint = "npx --yes prettier@3 --write 'web/**/*.{html,css}' && .venv/bin/autopep8 --in-place --recursive . && .venv/bin/python -m nbqa autopep8 *.ipynb --in-place"
+lint = "npx --yes prettier@3 --write 'web/**/*.{html,css}' '**/*.md' && .venv/bin/autopep8 --in-place --recursive . && .venv/bin/python -m nbqa autopep8 *.ipynb --in-place"
 typecheck = ".venv/bin/pyright . && .venv/bin/python -m nbqa pyright *.ipynb"
 export = ".venv/bin/python export_notebook_figures.py"
 web = "uvicorn web.app:app --reload"
