@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import math
 from pathlib import Path
 from typing import Any, cast
 
@@ -12,6 +13,14 @@ CHURN_THRESHOLD = 0.5
 ENGAGEMENT_THRESHOLD = 0.5
 POINTS_CLOSE_THRESHOLD = 50
 NEW_USER_TENURE_DAYS = 90
+ACTIVITY_GRAPH_WEEKS = 26
+ACTIVITY_INTENSITY_STEPS = 4
+EVENT_TYPE_LABELS = {
+    "access": "Access",
+    "scan": "Scan",
+    "mission": "Mission",
+    "redeem": "Redeem",
+}
 
 
 @dataclass
@@ -25,10 +34,44 @@ class CRMOutput:
 
 
 @dataclass
+class ActivityDay:
+    date: str
+    count: int
+    level: int
+    in_range: bool
+    tooltip: str
+
+
+@dataclass
+class ActivityMonthLabel:
+    label: str
+    column: int
+
+
+@dataclass
+class ActivityEventTotal:
+    key: str
+    label: str
+    count: int
+
+
+@dataclass
+class ActivityGraph:
+    range_label: str
+    total_events: int
+    active_days: int
+    longest_streak: int
+    weeks: list[list[ActivityDay]]
+    month_labels: list[ActivityMonthLabel]
+    event_totals: list[ActivityEventTotal]
+
+
+@dataclass
 class UserPayload:
     user_id: str
     profile: dict[str, object]
     crm_output: CRMOutput
+    activity: ActivityGraph
 
 
 class _SafeFormatDict(dict[str, str]):
@@ -127,6 +170,7 @@ class CRMDecisionEngine:
             latest_snapshot["reward_threshold_points"] -
             latest_snapshot["totalPoints"]
         ).clip(lower=0)
+        self.latest_reference_timestamp = latest_reference.normalize()
 
         churn_scores = pd.read_csv(
             self.artifacts_dir / "final" / "churn_scores_current.csv")
@@ -186,6 +230,25 @@ class CRMDecisionEngine:
         merged["education_clause"] = merged["tenure_days"].apply(
             self._education_clause)
 
+        activity_events = training_artifacts["events_long"].copy()
+        activity_events["idSSO"] = activity_events["idSSO"].astype(str)
+        activity_events["event_day"] = pd.to_datetime(
+            activity_events["event_date"], errors="coerce"
+        ).dt.normalize()
+        activity_events = activity_events.dropna(
+            subset=["idSSO", "event_day"]).copy()
+        activity_events["event_type"] = activity_events["event_type"].astype(
+            str)
+        activity_events = activity_events[
+            activity_events["event_day"] <= self.latest_reference_timestamp
+        ]
+        self.activity_daily = (
+            activity_events.groupby(
+                ["idSSO", "event_day", "event_type"], as_index=False)
+            .size()
+            .rename(columns={"size": "event_count"})
+        )
+
         self.latest_reference_date = latest_reference.strftime("%Y-%m-%d")
         self.user_frame = merged
         self.segment_lookup = self._build_segment_lookup(merged)
@@ -214,6 +277,7 @@ class CRMDecisionEngine:
             user_id=user_id,
             profile=self._build_profile(row),
             crm_output=self._build_crm_output(row),
+            activity=self._build_activity_graph(user_id),
         )
 
     def _build_profile(self, row: pd.Series) -> dict[str, object]:
@@ -370,6 +434,96 @@ class CRMDecisionEngine:
             rule = self._match_rule(row)
             segment_map[str(row["idSSO"])] = rule["segment_id"]
         return segment_map
+
+    def _build_activity_graph(self, user_id: str) -> ActivityGraph:
+        end_date = self.latest_reference_timestamp
+        latest_week_start = end_date - pd.Timedelta(days=end_date.weekday())
+        start_date = latest_week_start - \
+            pd.Timedelta(weeks=ACTIVITY_GRAPH_WEEKS - 1)
+        grid_end = latest_week_start + pd.Timedelta(days=6)
+
+        user_events = self.activity_daily[self.activity_daily["idSSO"] == user_id]
+        window_events = user_events[
+            (user_events["event_day"] >= start_date)
+            & (user_events["event_day"] <= end_date)
+        ].copy()
+
+        daily_totals = (
+            window_events.groupby("event_day")[
+                "event_count"].sum().astype(int).to_dict()
+        )
+        event_totals = (
+            window_events.groupby("event_type")[
+                "event_count"].sum().astype(int).to_dict()
+        )
+
+        breakdown_lookup: dict[pd.Timestamp, dict[str, int]] = {}
+        if not window_events.empty:
+            for day, day_frame in window_events.groupby("event_day"):
+                breakdown_lookup[day] = {
+                    event_type: int(count)
+                    for event_type, count in day_frame.groupby("event_type")[
+                        "event_count"
+                    ].sum().items()
+                }
+
+        active_counts = [count for count in daily_totals.values() if count > 0]
+        max_count = max(active_counts, default=0)
+        total_events = sum(active_counts)
+        active_days = len(active_counts)
+
+        all_days = pd.date_range(start=start_date, end=grid_end, freq="D")
+        weeks: list[list[ActivityDay]] = []
+        current_streak = 0
+        longest_streak = 0
+
+        for week_start_idx in range(0, len(all_days), 7):
+            week: list[ActivityDay] = []
+            for day in all_days[week_start_idx:week_start_idx + 7]:
+                in_range = day <= end_date
+                count = int(daily_totals.get(day, 0)) if in_range else 0
+                if in_range:
+                    if count > 0:
+                        current_streak += 1
+                        longest_streak = max(longest_streak, current_streak)
+                    else:
+                        current_streak = 0
+                week.append(
+                    ActivityDay(
+                        date=day.strftime("%Y-%m-%d"),
+                        count=count,
+                        level=self._activity_level(
+                            count, max_count) if in_range else 0,
+                        in_range=bool(in_range),
+                        tooltip=self._activity_tooltip(
+                            day=day,
+                            count=count,
+                            breakdown=breakdown_lookup.get(day, {}),
+                            in_range=bool(in_range),
+                        ),
+                    )
+                )
+            weeks.append(week)
+
+        month_labels = self._build_activity_month_labels(weeks)
+        event_breakdown = [
+            ActivityEventTotal(key=key, label=label,
+                               count=int(event_totals.get(key, 0)))
+            for key, label in EVENT_TYPE_LABELS.items()
+            if int(event_totals.get(key, 0)) > 0
+        ]
+
+        return ActivityGraph(
+            range_label=(
+                f"{start_date.strftime('%b %d')} - {end_date.strftime('%b %d, %Y')}"
+            ),
+            total_events=total_events,
+            active_days=active_days,
+            longest_streak=longest_streak,
+            weeks=weeks,
+            month_labels=month_labels,
+            event_totals=event_breakdown,
+        )
 
     def _build_sample_user_ids(self, frame: pd.DataFrame) -> list[str]:
         sample_ids: list[str] = []
@@ -538,6 +692,54 @@ class CRMDecisionEngine:
             f"Points gap is {_format_points(points_gap)}, which is `{proximity}`"
             f" relative to the {POINTS_CLOSE_THRESHOLD}-point trigger."
         )
+
+    @staticmethod
+    def _activity_level(count: int, max_count: int) -> int:
+        if count <= 0 or max_count <= 0:
+            return 0
+        scaled = math.ceil((count / max_count) * ACTIVITY_INTENSITY_STEPS)
+        return max(1, min(ACTIVITY_INTENSITY_STEPS, scaled))
+
+    @staticmethod
+    def _activity_tooltip(
+        *,
+        day: pd.Timestamp,
+        count: int,
+        breakdown: dict[str, int],
+        in_range: bool,
+    ) -> str:
+        if not in_range:
+            return f"{day.strftime('%b %d, %Y')}: outside the current snapshot window."
+        if count == 0:
+            return f"{day.strftime('%b %d, %Y')}: no recorded activity."
+
+        parts = []
+        for event_type, label in EVENT_TYPE_LABELS.items():
+            event_count = breakdown.get(event_type, 0)
+            if event_count > 0:
+                suffix = "" if event_count == 1 else "es" if label == "Access" else "s"
+                parts.append(f"{event_count} {label.lower()}{suffix}")
+
+        details = ", ".join(parts)
+        event_label = "event" if count == 1 else "events"
+        return f"{day.strftime('%b %d, %Y')}: {count} {event_label} ({details})."
+
+    @staticmethod
+    def _build_activity_month_labels(
+        weeks: list[list[ActivityDay]],
+    ) -> list[ActivityMonthLabel]:
+        month_labels: list[ActivityMonthLabel] = []
+        last_label = ""
+        for index, week in enumerate(weeks):
+            visible_days = [day for day in week if day.in_range]
+            if not visible_days:
+                continue
+            month_label = pd.Timestamp(visible_days[0].date).strftime("%b")
+            if month_label != last_label:
+                month_labels.append(ActivityMonthLabel(
+                    label=month_label, column=index))
+                last_label = month_label
+        return month_labels
 
     @staticmethod
     def _last_scan_guidance(last_scan_days: int | None) -> str:

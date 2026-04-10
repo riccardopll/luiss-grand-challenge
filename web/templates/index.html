@@ -110,6 +110,59 @@
 
         <section class="dashboard-grid hidden" id="dashboard-grid">
           <div class="main-column">
+            <article class="dash-card activity-card">
+              <div class="card-head">
+                <div>
+                  <p class="section-kicker">User activity</p>
+                </div>
+              </div>
+
+              <div class="activity-graph-shell">
+                <div class="activity-graph-inner">
+                  <div class="activity-months" id="activity-months"></div>
+                  <div class="activity-graph-layout">
+                    <div class="activity-weekdays" aria-hidden="true">
+                      <span>Mon</span>
+                      <span></span>
+                      <span>Wed</span>
+                      <span></span>
+                      <span>Fri</span>
+                      <span></span>
+                      <span></span>
+                    </div>
+                    <div class="activity-grid" id="activity-grid"></div>
+                  </div>
+                </div>
+              </div>
+              <div
+                class="activity-hover-tooltip hidden"
+                id="activity-hover-tooltip"
+                role="status"
+                aria-hidden="true"
+              ></div>
+
+              <div class="activity-footer">
+                <div class="activity-footer-main">
+                  <div
+                    class="activity-event-legend"
+                    id="activity-event-legend"
+                  ></div>
+                  <div class="activity-stats" id="activity-stats"></div>
+                </div>
+                <div class="activity-intensity-legend" aria-hidden="true">
+                  <span>Less</span>
+                  <div class="activity-intensity-scale">
+                    <span class="activity-cell level-0"></span>
+                    <span class="activity-cell level-1"></span>
+                    <span class="activity-cell level-2"></span>
+                    <span class="activity-cell level-3"></span>
+                    <span class="activity-cell level-4"></span>
+                  </div>
+                  <span>More</span>
+                </div>
+              </div>
+            </article>
+
             <article class="dash-card action-card">
               <div class="card-head">
                 <div>
@@ -214,6 +267,11 @@
         const decisionChip = document.getElementById("decision-chip");
         const decisionSummary = document.getElementById("decision-summary");
         const decisionLines = document.getElementById("decision-lines");
+        const activityStats = document.getElementById("activity-stats");
+        const activityMonths = document.getElementById("activity-months");
+        const activityGrid = document.getElementById("activity-grid");
+        const activityEventLegend = document.getElementById("activity-event-legend");
+        const activityHoverTooltip = document.getElementById("activity-hover-tooltip");
 
         const briefList = document.getElementById("brief-list");
 
@@ -306,6 +364,128 @@
           renderList(decisionLines, output.logic_lines);
         };
 
+        const renderActivity = (activity) => {
+          const stats = [
+            { label: "Events", value: activity.total_events },
+            { label: "Active days", value: activity.active_days },
+            { label: "Longest streak", value: `${activity.longest_streak}d` },
+          ];
+
+          activityStats.innerHTML = "";
+          stats.forEach((stat) => {
+            const item = document.createElement("div");
+            item.className = "activity-stat";
+
+            const label = document.createElement("span");
+            label.className = "activity-stat-label";
+            label.textContent = stat.label;
+
+            const value = document.createElement("strong");
+            value.className = "activity-stat-value";
+            value.textContent = String(stat.value);
+
+            item.append(label, value);
+            activityStats.appendChild(item);
+          });
+
+          activityMonths.innerHTML = "";
+          activityGrid.innerHTML = "";
+          const weekCount = activity.weeks.length;
+          activityMonths.style.gridTemplateColumns = `repeat(${weekCount}, var(--activity-cell-size))`;
+          activityGrid.style.gridTemplateColumns = `repeat(${weekCount}, var(--activity-cell-size))`;
+
+          activity.month_labels.forEach((month) => {
+            const label = document.createElement("span");
+            label.textContent = month.label;
+            label.style.gridColumn = String(month.column + 1);
+            activityMonths.appendChild(label);
+          });
+
+          activity.weeks.forEach((week, weekIndex) => {
+            week.forEach((day, dayIndex) => {
+              const cell = document.createElement("span");
+              cell.className = `activity-cell level-${day.level}`;
+              if (!day.in_range) {
+                cell.classList.add("is-outside-range");
+              }
+              cell.style.gridColumn = String(weekIndex + 1);
+              cell.style.gridRow = String(dayIndex + 1);
+              cell.dataset.tooltip = day.tooltip;
+              cell.setAttribute("aria-label", day.tooltip);
+              activityGrid.appendChild(cell);
+            });
+          });
+
+          activityGrid.setAttribute(
+            "aria-label",
+            `User activity heatmap for ${activity.range_label}. ${activity.total_events} total events across ${activity.active_days} active days.`
+          );
+
+          activityEventLegend.innerHTML = "";
+          if (activity.event_totals.length === 0) {
+            const emptyState = document.createElement("span");
+            emptyState.className = "activity-event-pill";
+            emptyState.textContent = "No activity in this window";
+            activityEventLegend.appendChild(emptyState);
+            return;
+          }
+
+          activity.event_totals.forEach((item) => {
+            const pill = document.createElement("span");
+            pill.className = `activity-event-pill activity-event-pill-${item.key}`;
+            pill.textContent = `${item.label} ${item.count}`;
+            activityEventLegend.appendChild(pill);
+          });
+        };
+
+        const showActivityTooltip = (text, x, y) => {
+          activityHoverTooltip.textContent = text;
+          activityHoverTooltip.classList.remove(hiddenClass);
+          activityHoverTooltip.setAttribute("aria-hidden", "false");
+
+          const offsetX = 16;
+          const offsetY = 18;
+          activityHoverTooltip.style.left = `${x + offsetX}px`;
+          activityHoverTooltip.style.top = `${y - offsetY}px`;
+
+          const rect = activityHoverTooltip.getBoundingClientRect();
+          const maxLeft = window.innerWidth - rect.width - 12;
+          const minLeft = 12;
+          const nextLeft = Math.min(Math.max(x + offsetX, minLeft), maxLeft);
+          let nextTop = y - rect.height - offsetY;
+          if (nextTop < 12) {
+            nextTop = y + offsetY;
+          }
+
+          activityHoverTooltip.style.left = `${nextLeft}px`;
+          activityHoverTooltip.style.top = `${nextTop}px`;
+        };
+
+        const hideActivityTooltip = () => {
+          activityHoverTooltip.classList.add(hiddenClass);
+          activityHoverTooltip.setAttribute("aria-hidden", "true");
+        };
+
+        activityGrid.addEventListener("pointermove", (event) => {
+          const target = event.target;
+          if (!(target instanceof HTMLElement) || !target.classList.contains("activity-cell")) {
+            hideActivityTooltip();
+            return;
+          }
+
+          const tooltipText = target.dataset.tooltip;
+          if (!tooltipText) {
+            hideActivityTooltip();
+            return;
+          }
+
+          showActivityTooltip(tooltipText, event.clientX, event.clientY);
+        });
+
+        activityGrid.addEventListener("pointerleave", () => {
+          hideActivityTooltip();
+        });
+
         const renderBrief = (brief) => {
           const items = briefOrder
             .map((key) => brief?.[key])
@@ -383,6 +563,7 @@
 
           setTopNavbarId(payload.user_id);
           renderDecision(payload.crm_output);
+          renderActivity(payload.activity);
           renderBrief(payload.crm_output.marketing_brief);
           renderAction(payload.crm_output, payload.profile);
           setStatus(null);
