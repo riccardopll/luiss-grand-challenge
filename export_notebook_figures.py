@@ -36,6 +36,7 @@ EXPORT_JOBS = {
         targets=[
             "09-validation-metric-output.svg",
             "10-model-family-check.svg",
+            "14-feature-relevance-check.svg",
             "11-churn-re-engagement-calibration.svg",
             "12-crm-segment-distribution.svg",
         ],
