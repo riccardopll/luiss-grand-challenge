@@ -6,7 +6,7 @@ This repository contains an end-to-end CRM decision system for Fater's loyalty e
 
 Rather than treating that as a single churn-only modeling task, the repository implements a broader propensity framework with two complementary predictive targets, a business rule layer, and a presentation layer that makes the final recommendation reviewable end to end.
 
-## Project Members
+**Project Members**
 
 - Mattia Galentino
 - Maiia Kopalina
@@ -24,25 +24,11 @@ Fater's loyalty base is not homogeneous. Users differ by lifecycle stage, recent
 The solution is one coordinated CRM decision engine built on top of two propensity models.
 `churn_30_to_60` estimates the probability that a user currently inactive for 30 to 59 days remains inactive for the next 30 days, while `re_engage_30d` estimates the probability that a user records at least one meaningful event such as a `scan`, `mission`, or `redeem` in the next 30 days.
 
-Those scores are then combined with simple business rules to produce five operational segments:
-
-- `S1` Lifecycle-transition churn,
-- `S2` High-risk rescue,
-- `S3` Low-risk, reward-near,
-- `S4` Low-risk, high-momentum, reward-far, and
-- `S5` Low-risk, low-momentum, reward-far.
-
-In the current local artifacts, the latest scored snapshot is **2025-08-01**.
-
 ## Approach
 
 The project uses user profile data, app interactions, uploaded codes and points behavior, mission participation, reward history, and product master data to recover category preferences from scan history. On top of those sources, it enriches the analysis with external ISTAT regional context.
 
-**Behavioral patterns.**
-
 Several patterns matter for the final CRM design. Most of the observable signal comes from recurring access, scan, and mission behavior; activity level changes over time, which makes temporal validation more appropriate than a pooled random split; points are highly concentrated, so reward proximity becomes a useful CRM lever; and lifecycle stage affects message relevance, especially near late-stage transitions.
-
-**Campaign framework.**
 
 The final output is a campaign framework. Each segment maps to a distinct CRM direction:
 
@@ -57,8 +43,6 @@ The final output is a campaign framework. Each segment maps to a distinct CRM di
 ## Results
 
 By the end of the workflow, the repository produces exploratory analysis and charts, a reusable training artifact with cleaned tables, events, features, and labels, validation outputs for both models, scored user-level CSV exports for all months and for the latest month, a rule-based CRM decision layer, and a browser demo for inspecting one user at a time.
-
-**Workflow.**
 
 The project runs in four stages. First, `eda.ipynb` loads the local datasets, cleans and harmonizes them, builds the user base, creates the event history, and writes the shared snapshot artifact. Second, `final.ipynb` reads that artifact, trains the two logistic-regression propensities with temporal validation, benchmarks them against random forest, checks calibration, and exports score tables. Third, `decision_rules.txt` defines the final first-match-wins CRM segmentation logic. Finally, `web/` loads the exported artifacts and serves a demo that shows the user profile, activity heatmap, CRM segment, and message brief.
 
@@ -80,4 +64,4 @@ The churn model is useful for ranking risky users, although it is less strong as
 | `eda.ipynb`          | Builds the analytical foundation of the project: it cleans the raw data, explores the user base, engineers the main features, and writes the shared artifact used downstream. |
 | `final.ipynb`        | Trains and evaluates the two propensity models, checks their performance, and exports the scoring outputs that feed the CRM decision layer.                                   |
 | `decision_rules.txt` | Defines the business rules that convert model signals into the final CRM segments and campaign recommendations.                                                               |
-| `web/`               | Contains the demo app that loads the exported artifacts and shows the final user-level decision logic through a browsable interface.                                          |
+| `web/`               | Contains the demo app that loads the exported artifacts and shows the final decision logic through a browsable interface.                                                     |
