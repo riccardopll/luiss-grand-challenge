@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from dataclasses import dataclass
 import json
 import math
@@ -155,8 +153,8 @@ class CRMDecisionEngine:
 
         user_base = training_artifacts["user_base"].copy()
         user_base["idSSO"] = user_base["idSSO"].astype(str)
-        profile_columns = ["idSSO", "Regione", "registration_date"]
-        self.user_profile = user_base[profile_columns].drop_duplicates(
+        profile_columns = ["idSSO", "Regione"]
+        user_profile = user_base[profile_columns].drop_duplicates(
             subset="idSSO", keep="last")
 
         snapshots = training_artifacts["snapshot_features"].copy()
@@ -181,10 +179,9 @@ class CRMDecisionEngine:
         engagement_scores["idSSO"] = engagement_scores["idSSO"].astype(str)
 
         product_categories = self._build_product_categories(training_artifacts)
-        prize_formats = self._build_prize_formats(training_artifacts)
 
         merged = latest_snapshot.merge(
-            self.user_profile, on="idSSO", how="left"
+            user_profile, on="idSSO", how="left"
         ).merge(
             churn_scores[["idSSO", "churn_30_to_60_prob"]],
             on="idSSO",
@@ -195,10 +192,6 @@ class CRMDecisionEngine:
             how="left",
         ).merge(
             product_categories,
-            on="idSSO",
-            how="left",
-        ).merge(
-            prize_formats,
             on="idSSO",
             how="left",
         )
@@ -377,8 +370,6 @@ class CRMDecisionEngine:
         last_scan_days = _clean_int(row["days_since_last_scan"])
         has_redeemed = _truthy_flag(row["has_ever_redeemed"])
         tenure_days = _clean_int(row["tenure_days"])
-        prize_format = self._prize_format_label(
-            row["prize_format"], has_redeemed=has_redeemed)
         return {
             "physiological_churn": {
                 "label": "Physiological churn",
@@ -395,11 +386,6 @@ class CRMDecisionEngine:
                 "label": "Points gap",
                 "value": _format_points(points_gap),
                 "guidance": "Use the exact number in copy when the user is close to a reward.",
-            },
-            "prize_format": {
-                "label": "Prize format",
-                "value": prize_format,
-                "guidance": "Mirror the reward format the user already trusts, or explain the reward type clearly if they have never redeemed.",
             },
             "mission_engagement": {
                 "label": "Mission engagement",
@@ -593,20 +579,6 @@ class CRMDecisionEngine:
         )
         return top_items
 
-    def _build_prize_formats(self, training_artifacts: dict[str, Any]) -> pd.DataFrame:
-        premi = training_artifacts["tables_clean"]["premi"].copy()
-        premi["idSSO"] = premi["userid"].map(
-            training_artifacts["bridges"]["user_to_idsso"])
-        premi["created_at_premio"] = pd.to_datetime(
-            premi["created_at_premio"], errors="coerce")
-        latest_prizes = premi.dropna(subset=["idSSO"]).sort_values(
-            "created_at_premio"
-        )
-        latest_prizes = latest_prizes.drop_duplicates(
-            subset="idSSO", keep="last")
-        return latest_prizes[["idSSO", "formatPremio"]].rename(
-            columns={"formatPremio": "prize_format"})
-
     @classmethod
     def _extract_scan_category(cls, row: pd.Series) -> str | None:
         for column in ("SEGMENTO_DES", "OCCUSO_DES", "TARGET_DES"):
@@ -758,10 +730,3 @@ class CRMDecisionEngine:
         if tenure_days < NEW_USER_TENURE_DAYS:
             return "Add onboarding context because the user may still be learning how scans and missions work."
         return "The user is established enough that the message can focus on value rather than basics."
-
-    @staticmethod
-    def _prize_format_label(value: object, *, has_redeemed: bool) -> str:
-        prize_format = _clean_text(value, fallback="Unknown")
-        if prize_format == "Unknown" and not has_redeemed:
-            return "No redemption history yet"
-        return prize_format.replace("_", " ").title()

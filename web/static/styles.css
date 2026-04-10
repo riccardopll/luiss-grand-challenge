@@ -338,10 +338,6 @@ input {
   background: #fff5f7;
 }
 
-.status-info {
-  background: var(--panel);
-}
-
 .metrics-row {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

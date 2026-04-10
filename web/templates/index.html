@@ -284,7 +284,6 @@
           "physiological_churn",
           "product_category",
           "points_gap",
-          "prize_format",
           "mission_engagement",
           "last_scan_days_ago",
           "has_ever_redeemed",
@@ -336,17 +335,17 @@
           button.textContent = isLoading ? "Loading..." : "Inspect User";
         };
 
-        const setStatus = (message, kind) => {
+        const setStatus = (message) => {
           if (!message) {
             statusCard.classList.add(hiddenClass);
-            statusCard.classList.remove("status-error", "status-info");
+            statusCard.classList.remove("status-error");
             statusCard.textContent = "";
             return;
           }
 
           statusCard.textContent = message;
-          statusCard.classList.remove(hiddenClass, "status-error", "status-info");
-          statusCard.classList.add(kind === "error" ? "status-error" : "status-info");
+          statusCard.classList.remove(hiddenClass);
+          statusCard.classList.add("status-error");
         };
 
         const renderList = (element, items) => {
@@ -577,7 +576,7 @@
           metricsRow.classList.add(hiddenClass);
           dashboardGrid.classList.add(hiddenClass);
           resetSession();
-          setStatus(message, message ? "error" : "info");
+          setStatus(message);
         };
 
         const updateUrl = (userId) => {
