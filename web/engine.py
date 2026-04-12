@@ -24,17 +24,18 @@ NOTIFICATION_TEMPLATES = {
         "email": {
             "headline": "Share Pampers Club with a friend who needs it now",
             "body": (
-                "As your family moves through {lifecycle_reference}, this is a good"
-                " moment to share Pampers Club with a pregnant friend or a new"
-                " parent. Pass on the app and turn your experience into a referral"
-                " reward. {tenure_sentence}"
+                "You are in {lifecycle_stage}. {product_category_sentence}"
+                " {points_snapshot_sentence} This is a good moment to share"
+                " Pampers Club with a pregnant friend or a new parent and turn"
+                " your experience into a referral reward. {tenure_sentence}"
             ),
         },
         "push": {
             "headline": "Know a new parent who could use this?",
             "body": (
-                "Invite a pregnant friend or a new parent to Pampers Club and share"
-                " the value you have already learned."
+                "{points_balance_push_snippet} Invite a pregnant friend or a new"
+                " parent to Pampers Club and share what works for your family"
+                " stage."
             ),
         },
     },
@@ -42,51 +43,54 @@ NOTIFICATION_TEMPLATES = {
         "email": {
             "headline": "Come back now and earn double points",
             "body": (
-                "{recency_sentence} A limited double-points window can help you"
-                " rebuild momentum quickly."
+                "{recency_sentence} {points_snapshot_sentence} Restart with"
+                " {product_action_reference} while double points are live."
                 " {redemption_sentence}"
             ),
         },
         "push": {
             "headline": "Double points are live now",
-            "body": "Restart with one quick action and earn faster while the rescue boost is still active.",
+            "body": (
+                "{last_scan_reference} Restart with {product_action_reference}"
+                " and earn faster while the rescue boost is still active."
+            ),
         },
     },
     "S3": {
         "email": {
             "headline": "{reward_email_headline}",
-            "body": "{reward_status_sentence} {reward_next_step_sentence} {redemption_sentence}",
+            "body": "{points_snapshot_sentence} {reward_next_step_sentence} {redemption_sentence}",
         },
         "push": {
             "headline": "{reward_push_headline}",
-            "body": "{reward_push_sentence} {redemption_push_sentence}",
+            "body": "{reward_push_sentence} {points_balance_push_snippet} {redemption_push_sentence}",
         },
     },
     "S4": {
         "email": {
             "headline": "{preferred_incentive_title} to earn faster",
             "body": (
-                "You are already engaging well, so this is the right moment to earn"
-                " faster. {mission_sentence} {acceleration_sentence}"
-                " {reward_distance_sentence}"
+                "{mission_profile_sentence} {points_snapshot_sentence}"
+                " {mission_sentence} {acceleration_sentence}"
             ),
         },
         "push": {
             "headline": "{preferred_incentive_title}",
-            "body": "{push_acceleration_sentence}",
+            "body": "{mission_profile_sentence} {push_acceleration_sentence}",
         },
     },
     "S5": {
         "email": {
             "headline": "A simple way to get more value from the app",
             "body": (
-                "{educational_intro} {tenure_sentence} {restart_sentence}"
-                " {redemption_sentence}"
+                "{educational_intro} {tenure_reference}"
+                " {product_category_sentence} {points_snapshot_sentence}"
+                " {restart_sentence} {redemption_sentence}"
             ),
         },
         "push": {
             "headline": "Start again with one simple scan",
-            "body": "{push_restart_sentence}",
+            "body": "{last_scan_reference} {push_restart_sentence} {points_balance_push_snippet}",
         },
     },
 }
@@ -610,15 +614,31 @@ class CRMDecisionEngine:
         last_scan_days = _clean_int(row["days_since_last_scan"])
         has_redeemed = _truthy_flag(row["has_ever_redeemed"])
         tenure_days = _clean_int(row["tenure_days"])
-        lifecycle_reference = self._lifecycle_reference(
-            marketing_brief["lifecycle"]["value"]
+        lifecycle_stage = self._brief_value(marketing_brief, "lifecycle")
+        product_category_list = self._brief_value(
+            marketing_brief, "product_category")
+        current_point_balance = self._brief_value(
+            marketing_brief, "current_point_balance"
         )
+        next_reward_summary = self._brief_value(marketing_brief, "next_reward")
+        mission_engagement_label = self._brief_value(
+            marketing_brief, "mission_engagement"
+        )
+        lifecycle_reference = self._lifecycle_reference(lifecycle_stage)
 
         return _SafeFormatDict(
             {
                 **template_context,
                 "segment_name": rule["segment_name"],
+                "lifecycle_stage": lifecycle_stage,
                 "lifecycle_reference": lifecycle_reference,
+                "product_category_list": product_category_list,
+                "primary_product_category": self._primary_product_category(
+                    product_category_list
+                ),
+                "current_point_balance": current_point_balance,
+                "next_reward_summary": next_reward_summary,
+                "mission_engagement_label": mission_engagement_label,
                 "recency_sentence": self._notification_recency_sentence(
                     last_scan_days
                 ),
@@ -650,6 +670,23 @@ class CRMDecisionEngine:
                 "mission_sentence": self._mission_sentence(row),
                 "educational_intro": self._educational_intro(
                     lifecycle_reference, last_scan_days
+                ),
+                "product_category_sentence": self._product_category_sentence(
+                    product_category_list
+                ),
+                "product_action_reference": self._product_action_reference(
+                    product_category_list
+                ),
+                "points_snapshot_sentence": self._points_snapshot_sentence(
+                    current_point_balance, next_reward_summary
+                ),
+                "points_balance_push_snippet": self._points_balance_push_snippet(
+                    current_point_balance
+                ),
+                "last_scan_reference": self._last_scan_reference(last_scan_days),
+                "tenure_reference": self._tenure_reference(tenure_days),
+                "mission_profile_sentence": self._mission_profile_sentence(
+                    mission_engagement_label, product_category_list
                 ),
                 "push_acceleration_sentence": self._push_acceleration_sentence(
                     row, can_redeem_now, next_reward_gap
@@ -887,8 +924,101 @@ class CRMDecisionEngine:
         if clean_value.startswith("pregnancy"):
             return "pregnancy"
         if "(" in clean_value:
-            return clean_value.split("(", 1)[0].strip() + " months"
+            return clean_value.split("(", 1)[0].strip()
         return clean_value
+
+    @staticmethod
+    def _brief_value(
+        marketing_brief: dict[str, dict[str, str]],
+        key: str,
+        fallback: str = "",
+    ) -> str:
+        item = marketing_brief.get(key)
+        if not item:
+            return fallback
+        return _clean_text(item.get("value"), fallback=fallback)
+
+    @staticmethod
+    def _primary_product_category(product_category_list: str) -> str:
+        if not product_category_list or product_category_list == "No scan history yet":
+            return "your next scan"
+        primary_category = product_category_list.split(";", 1)[0].strip()
+        return primary_category or "your next scan"
+
+    @classmethod
+    def _product_category_sentence(cls, product_category_list: str) -> str:
+        if not product_category_list or product_category_list == "No scan history yet":
+            return (
+                "Once you log one valid product, the app can tailor rewards more"
+                " closely to your routine."
+            )
+        primary_category = cls._primary_product_category(product_category_list)
+        return f"Your strongest scan habit is around {primary_category}."
+
+    @classmethod
+    def _product_action_reference(cls, product_category_list: str) -> str:
+        if not product_category_list or product_category_list == "No scan history yet":
+            return "one quick scan"
+        primary_category = cls._primary_product_category(product_category_list)
+        return f"one quick scan in {primary_category}"
+
+    @staticmethod
+    def _points_snapshot_sentence(
+        current_point_balance: str, next_reward_summary: str
+    ) -> str:
+        current_known = bool(
+            current_point_balance and current_point_balance != "Balance unavailable"
+        )
+        next_known = bool(
+            next_reward_summary and next_reward_summary != "Balance unavailable"
+        )
+        if current_known and next_known:
+            return (
+                f"You currently have {current_point_balance}, and your next"
+                f" milestone is {next_reward_summary}."
+            )
+        if current_known:
+            return f"You currently have {current_point_balance}."
+        if next_known:
+            return f"Your next reward milestone is {next_reward_summary}."
+        return "Your reward balance is updating right now."
+
+    @staticmethod
+    def _points_balance_push_snippet(current_point_balance: str) -> str:
+        if not current_point_balance or current_point_balance == "Balance unavailable":
+            return ""
+        return f"You have {current_point_balance} right now."
+
+    @staticmethod
+    def _last_scan_reference(last_scan_days: int | None) -> str:
+        if last_scan_days is None:
+            return "A quick restart is enough to rebuild momentum."
+        if last_scan_days <= 14:
+            return "Your last scan was recent."
+        if last_scan_days <= 45:
+            return f"Your last scan was {_format_days(last_scan_days)} ago."
+        return f"It has been {_format_days(last_scan_days)} since your last scan."
+
+    @staticmethod
+    def _tenure_reference(tenure_days: int | None) -> str:
+        if tenure_days is None:
+            return ""
+        if tenure_days < NEW_USER_TENURE_DAYS:
+            return f"Your account is still early at {_format_days(tenure_days)} of tenure."
+        return f"You already know the program after {_format_days(tenure_days)} in the app."
+
+    @classmethod
+    def _mission_profile_sentence(
+        cls, mission_engagement_label: str, product_category_list: str
+    ) -> str:
+        if mission_engagement_label == "Mission-active":
+            return "You already respond well to mission-based engagement."
+        if mission_engagement_label == "Mission-curious":
+            return "You have already shown some mission interest."
+        if not product_category_list or product_category_list == "No scan history yet":
+            return "Your engagement is still scan-led, so a simple scan is the best re-entry point."
+        primary_category = cls._primary_product_category(product_category_list)
+        return f"Your engagement is still scan-led, especially around {primary_category}."
 
     @staticmethod
     def _notification_recency_sentence(last_scan_days: int | None) -> str:
@@ -1007,10 +1137,7 @@ class CRMDecisionEngine:
         if mission_engagement == "Mission-active":
             return "Pick up your next mission and keep the streak going."
         if mission_engagement == "Mission-curious":
-            return (
-                f"{preferred_incentive} is a good next step because you already"
-                " show some mission interest."
-            )
+            return f"Use {preferred_incentive.lower()} to turn that early interest into more points."
         return "A quick scan is the simplest way to earn again."
 
     @staticmethod
@@ -1028,17 +1155,14 @@ class CRMDecisionEngine:
         lifecycle_reference: str, last_scan_days: int | None
     ) -> str:
         if last_scan_days is None:
-            return (
-                "Getting value from the app again can start with one simple scan"
-                f" during {lifecycle_reference}."
-            )
+            return f"It is easy to bring the app back into your routine during {lifecycle_reference}."
         if last_scan_days <= 45:
             return (
-                "You are still close enough to your last activity that one simple"
-                f" scan can bring the app back into your routine for {lifecycle_reference}."
+                "You are still close enough to your last activity that the app can"
+                f" fit back into your routine for {lifecycle_reference}."
             )
         return (
-            "If the app has been quiet for a while, start small with one scan and"
+            "If the app has been quiet for a while, this is a good moment to"
             f" rebuild value around {lifecycle_reference}."
         )
 
