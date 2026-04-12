@@ -52,10 +52,10 @@ The current exported validation metrics in `artifacts/final/validation_metrics.c
 
 | Model     |   Rows | Positive Rate | ROC AUC | Average Precision | Top-Decile Precision |
 | --------- | -----: | ------------: | ------: | ----------------: | -------------------: |
-| Churn     |  1,251 |        0.6563 |  0.7981 |            0.8763 |               0.9524 |
+| Churn     |  1,251 |        0.6563 |  0.7977 |            0.8759 |               0.9444 |
 | Re-engage | 19,115 |        0.3813 |  0.9635 |            0.9229 |               0.9582 |
 
-The churn model is useful for ranking risky users, although it is less strong as a perfectly calibrated probability model. Re-engagement is the stronger task overall and performs very well on both ranking and precision. Logistic regression remains the default because it is stable, interpretable, and easy to connect to the downstream CRM rule layer.
+The churn model is useful for ranking risky users and produces calibrated probabilities that are suitable for downstream CRM decisions. Re-engagement is still the stronger task overall and performs very well on both ranking and precision. Logistic regression remains the default because it is stable, interpretable, and easy to connect to the downstream CRM rule layer.
 
 ## Repository Guide
 
