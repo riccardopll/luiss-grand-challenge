@@ -524,9 +524,7 @@ class CRMDecisionEngine:
             },
             "next_reward": {
                 "label": "Next reward",
-                "value": self._format_next_reward_pill(
-                    can_redeem_now, next_reward_gap, next_reward_threshold
-                ),
+                "value": self._format_next_reward_pill(next_reward_threshold),
                 "guidance": (
                     "Use this combined view to anchor both the remaining"
                     " distance and the next reward tier in one message."
@@ -1168,9 +1166,6 @@ class CRMDecisionEngine:
 
     @staticmethod
     def _format_next_reward_pill(
-        can_redeem_now: bool,
-        next_reward_gap: float | None,
         next_reward_threshold: float | None,
     ) -> str:
-        del can_redeem_now, next_reward_gap
         return _format_points(next_reward_threshold)

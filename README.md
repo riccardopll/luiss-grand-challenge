@@ -1,6 +1,6 @@
 # LUISS Grand Challenge: Fater Loyalty Strategy
 
-This repository contains an end-to-end CRM decision system for Fater's loyalty ecosystem. It combines raw data preparation, exploratory analysis, predictive modeling, user segmentation, campaign recommendations, and a demo interface that makes the final decision logic inspectable. The project is built around one practical question:
+This repository contains an end-to-end CRM decision system for Fater's loyalty ecosystem. It combines raw data preparation, exploratory analysis, predictive modeling, user segmentation, campaign recommendations, and a demo interface for inspecting the final decision logic. The project is built around one practical question:
 
 > Given what we know about a user on a reference date, what is the right loyalty action to take next?
 
@@ -21,7 +21,7 @@ Fater's loyalty base is not homogeneous. Users differ by lifecycle stage, recent
 
 ![Web demo screenshot](images/13-web-demo-screenshot.png)
 
-The solution is one coordinated CRM decision engine built on top of two propensity models.
+The solution is a coordinated CRM decision engine built on two propensity models.
 `churn_30_to_60` estimates the probability that a user currently inactive for 30 to 59 days remains inactive for the next 30 days, while `re_engage_30d` estimates the probability that a user records at least one meaningful event such as a `scan`, `mission`, or `redeem` in the next 30 days.
 
 ## Approach
@@ -44,7 +44,7 @@ Reward proximity uses a `600`-point operational cutoff. The median scan award is
 
 ## Results
 
-By the end of the workflow, the repository produces exploratory analysis and charts, a reusable training artifact with cleaned tables, events, features, and labels, validation outputs for both models, scored user-level CSV exports for all months and for the latest month, a rule-based CRM decision layer, and a browser demo for inspecting one user at a time.
+By the end of the workflow, the repository produces exploratory analysis and charts, a reusable training artifact with cleaned tables, events, features, and labels, validation outputs for both models, scored user-level CSV exports, a rule-based CRM decision layer, and a browser demo for inspecting one user at a time.
 
 The project runs in four stages. First, `eda.ipynb` loads the local datasets, cleans and harmonizes them, builds the user base, creates the event history, and writes the shared snapshot artifact. Second, `final.ipynb` reads that artifact, trains the two logistic-regression propensities with temporal validation, benchmarks them against random forest, checks calibration, and exports score tables. Third, `decision_rules.txt` defines the final first-match-wins CRM segmentation logic. Finally, `web/` loads the exported artifacts and serves a demo that shows the user profile, activity heatmap, CRM segment, and message brief.
 
