@@ -1,5 +1,8 @@
 .DS_Store
-data/
+data/*
+!data/istat/
+data/istat/*
+!data/istat/*.csv
 .venv/
 __pycache__/
 *.py[cod]
