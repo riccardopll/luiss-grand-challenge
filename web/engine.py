@@ -223,7 +223,7 @@ def _format_days(value: int | None) -> str:
 
 def _format_points(value: float | None) -> str:
     if value is None:
-        return "Unknown"
+        return "Balance unavailable"
     return f"{int(round(value)):,} points"
 
 
@@ -497,6 +497,7 @@ class CRMDecisionEngine:
 
     def _build_marketing_brief(self, row: pd.Series) -> dict[str, dict[str, str]]:
         can_redeem_now = _truthy_flag(row["can_redeem_now"])
+        current_points = _clean_float(row["totalPoints"])
         next_reward_gap = _clean_float(row["next_reward_gap"])
         next_reward_threshold = _clean_float(row["next_reward_threshold"])
         last_scan_days = _clean_int(row["days_since_last_scan"])
@@ -522,9 +523,19 @@ class CRMDecisionEngine:
                     " avoid assuming the user wants the cheapest reward now."
                 ),
             },
+            "current_point_balance": {
+                "label": "Current point balance",
+                "value": _format_points(current_points),
+                "guidance": (
+                    "Use the live balance as the baseline for any reward or"
+                    " acceleration message."
+                ),
+            },
             "next_reward": {
-                "label": "Next reward",
-                "value": self._format_next_reward_pill(next_reward_threshold),
+                "label": "Next reward threashold",
+                "value": self._format_next_reward_pill(
+                    next_reward_threshold, next_reward_gap
+                ),
                 "guidance": (
                     "Use this combined view to anchor both the remaining"
                     " distance and the next reward tier in one message."
@@ -1167,5 +1178,11 @@ class CRMDecisionEngine:
     @staticmethod
     def _format_next_reward_pill(
         next_reward_threshold: float | None,
+        next_reward_gap: float | None,
     ) -> str:
-        return _format_points(next_reward_threshold)
+        threshold_text = _format_points(next_reward_threshold)
+        gap_value = _clean_float(next_reward_gap)
+        if threshold_text == "Balance unavailable" or gap_value is None:
+            return threshold_text
+        missing_points = max(0, int(math.ceil(gap_value)))
+        return f"{threshold_text} ({missing_points:,} missing)"
