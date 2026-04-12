@@ -718,7 +718,7 @@ class CRMDecisionEngine:
         if last_scan_days is None:
             return "Recency is missing, so keep the copy broadly welcoming."
         if last_scan_days <= 14:
-            return "Recent scanners respond well to positive reinforcement and momentum language."
+            return "Recent scanners respond well to positive reinforcement and engagement language."
         if last_scan_days <= 45:
             return "Use a warm reminder that reconnects recent habit to the next reward."
         return "Re-introduce the mechanic gently because the user has been away from scanning for a while."

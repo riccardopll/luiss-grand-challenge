@@ -32,13 +32,13 @@ Several patterns matter for the final CRM design. Most of the observable signal 
 
 The final output is a campaign framework. Each segment maps to a distinct CRM direction:
 
-| Segment                                  | Campaign Direction         | CRM Goal                                                                        |
-| ---------------------------------------- | -------------------------- | ------------------------------------------------------------------------------- |
-| `S1` Lifecycle-transition churn          | Referral-led exit campaign | Convert likely lifecycle exit into referral value rather than forcing retention |
-| `S2` High-risk rescue                    | Double-points rescue       | Intervene quickly on preventable high-risk users                                |
-| `S3` Low-risk, reward-near               | Prize reminder             | Push conversion when reward distance is already small                           |
-| `S4` Low-risk, high-momentum, reward-far | Incentive acceleration     | Deepen engagement for healthy users who still need a stronger hook              |
-| `S5` Low-risk, low-momentum, reward-far  | Gentle re-activation       | Restart habit without rescue-tone pressure                                      |
+| Segment                                     | Campaign Direction         | CRM Goal                                                                        |
+| ------------------------------------------- | -------------------------- | ------------------------------------------------------------------------------- |
+| `S1` Lifecycle-transition churn             | Referral-led exit campaign | Convert likely lifecycle exit into referral value rather than forcing retention |
+| `S2` High-churn rescue                      | Double-points rescue       | Intervene quickly on preventable high-churn users                               |
+| `S3` Low-churn, reward-near                 | Prize reminder             | Push conversion when reward distance is already small                           |
+| `S4` Low-churn, high-engagement, reward-far | Incentive acceleration     | Deepen engagement for healthy users who still need a stronger hook              |
+| `S5` Low-churn, low-engagement, reward-far  | Educational campaign       | Remind users of the app's benefits and easy ways to get value again             |
 
 ## Results
 
