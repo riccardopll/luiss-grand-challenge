@@ -12,7 +12,7 @@
 # - physiological_churn: 1 when the user is already in the lifecycle transition window
 # - high_churn: 1 when churn_score >= 0.50
 # - high_engagement: 1 when re_engage30d >= 0.50
-# - points_close: 1 when the user is within 50 points of the next reward
+# - points_close: 1 when the user can already redeem or is within 600 points of the next higher reward threshold
 
 # S1: lifecycle-transition users who should be converted into referral value rather than win-back.
 rule_name=lifecycle_transition_churn|condition=physiological_churn == 1|segment_id=S1|segment_name=Lifecycle-transition churn|segment_description=Users in the lifecycle transition window who should receive a referral-led exit campaign instead of a retention push.|campaign=Referral campaign|action=Use a loyalty exit message that rewards the user for referring a pregnant friend or new parent instead of trying to win them back.|summary=Lifecycle transition overrides every other signal, so the campaign should convert likely exit into referral value.

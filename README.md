@@ -40,6 +40,8 @@ The final output is a campaign framework. Each segment maps to a distinct CRM di
 | `S4` Low-churn, high-engagement, reward-far | Incentive acceleration     | Deepen engagement for healthy users who still need a stronger hook              |
 | `S5` Low-churn, low-engagement, reward-far  | Educational campaign       | Remind users of the app's benefits and easy ways to get value again             |
 
+Reward proximity uses a `600`-point operational cutoff. The median scan award is `200` points and the observed average completed mission award is about `199` points, so `600` points corresponds to roughly three realistic next actions.
+
 ## Results
 
 By the end of the workflow, the repository produces exploratory analysis and charts, a reusable training artifact with cleaned tables, events, features, and labels, validation outputs for both models, scored user-level CSV exports for all months and for the latest month, a rule-based CRM decision layer, and a browser demo for inspecting one user at a time.

@@ -9,7 +9,7 @@ import pandas as pd
 
 CHURN_THRESHOLD = 0.5
 ENGAGEMENT_THRESHOLD = 0.5
-POINTS_CLOSE_THRESHOLD = 50
+POINTS_CLOSE_THRESHOLD = 600
 NEW_USER_TENURE_DAYS = 90
 ACTIVITY_GRAPH_WEEKS = 26
 ACTIVITY_INTENSITY_STEPS = 4
@@ -258,10 +258,27 @@ class CRMDecisionEngine:
         latest_snapshot = snapshots[snapshots["reference_date"]
                                     == latest_reference].copy()
         latest_snapshot["idSSO"] = latest_snapshot["idSSO"].astype(str)
-        latest_snapshot["points_gap"] = (
-            latest_snapshot["reward_threshold_points"] -
+        reward_levels = self._load_reward_levels(latest_reference)
+        cheapest_available_threshold = (
+            float(reward_levels[0])
+            if reward_levels
+            else _clean_float(latest_snapshot["reward_threshold_points"].min())
+        )
+        latest_snapshot["cheapest_available_threshold"] = cheapest_available_threshold
+        if cheapest_available_threshold is None:
+            latest_snapshot["can_redeem_now"] = 0
+        else:
+            latest_snapshot["can_redeem_now"] = (
+                latest_snapshot["totalPoints"].notna()
+                & (latest_snapshot["totalPoints"] >= cheapest_available_threshold)
+            ).astype(int)
+        latest_snapshot["next_reward_threshold"] = latest_snapshot[
+            "totalPoints"
+        ].apply(lambda value: self._next_reward_threshold(value, reward_levels))
+        latest_snapshot["next_reward_gap"] = (
+            latest_snapshot["next_reward_threshold"] -
             latest_snapshot["totalPoints"]
-        ).clip(lower=0)
+        )
         self.latest_reference_timestamp = latest_reference.normalize()
 
         churn_scores = pd.read_csv(
@@ -298,9 +315,12 @@ class CRMDecisionEngine:
         merged["high_engagement"] = (
             merged["re_engage_30d_prob"].fillna(-1) >= ENGAGEMENT_THRESHOLD
         ).astype(int)
-        merged["points_close"] = (
-            merged["points_gap"].fillna(POINTS_CLOSE_THRESHOLD + 1) <=
+        merged["near_next_reward"] = (
+            merged["next_reward_gap"].fillna(POINTS_CLOSE_THRESHOLD + 1) <=
             POINTS_CLOSE_THRESHOLD
+        ).astype(int)
+        merged["points_close"] = (
+            (merged["can_redeem_now"] == 1) | (merged["near_next_reward"] == 1)
         ).astype(int)
         merged["mission_engagement"] = merged.apply(
             self._mission_engagement_value, axis=1)
@@ -476,7 +496,9 @@ class CRMDecisionEngine:
         )
 
     def _build_marketing_brief(self, row: pd.Series) -> dict[str, dict[str, str]]:
-        points_gap = _clean_float(row["points_gap"])
+        can_redeem_now = _truthy_flag(row["can_redeem_now"])
+        next_reward_gap = _clean_float(row["next_reward_gap"])
+        next_reward_threshold = _clean_float(row["next_reward_threshold"])
         last_scan_days = _clean_int(row["days_since_last_scan"])
         has_redeemed = _truthy_flag(row["has_ever_redeemed"])
         tenure_days = _clean_int(row["tenure_days"])
@@ -492,10 +514,23 @@ class CRMDecisionEngine:
                     row["product_category"], fallback="No scan history yet"),
                 "guidance": "Use these categories to anchor the reward framing or examples in the product groups the user scans most often.",
             },
-            "points_gap": {
-                "label": "Points gap",
-                "value": _format_points(points_gap),
-                "guidance": "Use the exact number in copy when the user is close to a reward.",
+            "can_redeem_now": {
+                "label": "Can redeem now",
+                "value": _yes_no(can_redeem_now),
+                "guidance": (
+                    "Treat this as optionality, not intent. When it is yes,"
+                    " avoid assuming the user wants the cheapest reward now."
+                ),
+            },
+            "next_reward": {
+                "label": "Next reward",
+                "value": self._format_next_reward_pill(
+                    can_redeem_now, next_reward_gap, next_reward_threshold
+                ),
+                "guidance": (
+                    "Use this combined view to anchor both the remaining"
+                    " distance and the next reward tier in one message."
+                ),
             },
             "mission_engagement": {
                 "label": "Mission engagement",
@@ -561,7 +596,8 @@ class CRMDecisionEngine:
         template_context: dict[str, str],
         marketing_brief: dict[str, dict[str, str]],
     ) -> dict[str, str]:
-        points_gap = _clean_float(row["points_gap"])
+        can_redeem_now = _truthy_flag(row["can_redeem_now"])
+        next_reward_gap = _clean_float(row["next_reward_gap"])
         last_scan_days = _clean_int(row["days_since_last_scan"])
         has_redeemed = _truthy_flag(row["has_ever_redeemed"])
         tenure_days = _clean_int(row["tenure_days"])
@@ -584,25 +620,37 @@ class CRMDecisionEngine:
                     has_redeemed
                 ),
                 "tenure_sentence": self._notification_tenure_sentence(tenure_days),
-                "reward_email_headline": self._reward_email_headline(points_gap),
-                "reward_push_headline": self._reward_push_headline(points_gap),
-                "reward_status_sentence": self._reward_status_sentence(points_gap),
-                "reward_next_step_sentence": self._reward_next_step_sentence(
-                    points_gap
+                "reward_email_headline": self._reward_email_headline(
+                    can_redeem_now, next_reward_gap
                 ),
-                "reward_push_sentence": self._reward_push_sentence(points_gap),
-                "reward_distance_sentence": self._reward_distance_sentence(points_gap),
+                "reward_push_headline": self._reward_push_headline(
+                    can_redeem_now, next_reward_gap
+                ),
+                "reward_status_sentence": self._reward_status_sentence(
+                    can_redeem_now, next_reward_gap
+                ),
+                "reward_next_step_sentence": self._reward_next_step_sentence(
+                    can_redeem_now, next_reward_gap
+                ),
+                "reward_push_sentence": self._reward_push_sentence(
+                    can_redeem_now, next_reward_gap
+                ),
+                "reward_distance_sentence": self._reward_distance_sentence(
+                    can_redeem_now, next_reward_gap
+                ),
                 "mission_sentence": self._mission_sentence(row),
                 "educational_intro": self._educational_intro(
                     lifecycle_reference, last_scan_days
                 ),
                 "push_acceleration_sentence": self._push_acceleration_sentence(
-                    row, points_gap
+                    row, can_redeem_now, next_reward_gap
                 ),
                 "push_restart_sentence": self._push_restart_sentence(
                     tenure_days, has_redeemed
                 ),
-                "acceleration_sentence": self._acceleration_sentence(points_gap),
+                "acceleration_sentence": self._acceleration_sentence(
+                    can_redeem_now, next_reward_gap
+                ),
                 "restart_sentence": self._restart_sentence(last_scan_days),
             }
         )
@@ -711,7 +759,7 @@ class CRMDecisionEngine:
         sortable["churn_sort"] = sortable["churn_30_to_60_prob"].fillna(0.0)
         sortable["engagement_sort"] = sortable["re_engage_30d_prob"].fillna(
             0.0)
-        sortable["points_sort"] = sortable["points_gap"].fillna(999999.0)
+        sortable["points_sort"] = sortable["next_reward_gap"].fillna(999999.0)
 
         for rule in self.rules:
             segment_id = rule["segment_id"]
@@ -867,57 +915,80 @@ class CRMDecisionEngine:
         return ""
 
     @staticmethod
-    def _reward_email_headline(points_gap: float | None) -> str:
-        if points_gap is None:
+    def _reward_email_headline(
+        can_redeem_now: bool, next_reward_gap: float | None
+    ) -> str:
+        if can_redeem_now:
+            if next_reward_gap is None:
+                return "You already have reward value available"
+            return "You can redeem now or keep going for the next reward"
+        if next_reward_gap is None:
             return "Your next reward is within reach"
-        rounded = int(round(points_gap))
-        if rounded <= 0:
-            return "Your next reward is ready"
+        rounded = int(round(next_reward_gap))
         if rounded == 1:
             return "You are only 1 point from your next reward"
         return f"You are only {rounded:,} points from your next reward"
 
     @staticmethod
-    def _reward_push_headline(points_gap: float | None) -> str:
-        if points_gap is None:
+    def _reward_push_headline(
+        can_redeem_now: bool, next_reward_gap: float | None
+    ) -> str:
+        if can_redeem_now:
+            return "You can redeem now"
+        if next_reward_gap is None:
             return "Your next reward is close"
-        if int(round(points_gap)) <= 0:
-            return "Your next reward is ready"
         return "Your next reward is close"
 
     @staticmethod
-    def _reward_status_sentence(points_gap: float | None) -> str:
-        if points_gap is None:
+    def _reward_status_sentence(
+        can_redeem_now: bool, next_reward_gap: float | None
+    ) -> str:
+        if can_redeem_now:
+            if next_reward_gap is None:
+                return "You already have enough points for a reward."
+            rounded = int(round(next_reward_gap))
+            return (
+                "You already have enough points for a reward, and only"
+                f" {rounded:,} more points would move you to the next tier."
+            )
+        if next_reward_gap is None:
             return "You are already within reach of your next reward."
-        rounded = int(round(points_gap))
-        if rounded <= 0:
-            return "You already have enough points for your next reward."
+        rounded = int(round(next_reward_gap))
         return f"You are only {rounded:,} points away from your next reward."
 
     @staticmethod
-    def _reward_next_step_sentence(points_gap: float | None) -> str:
-        if points_gap is None:
+    def _reward_next_step_sentence(
+        can_redeem_now: bool, next_reward_gap: float | None
+    ) -> str:
+        if can_redeem_now:
+            return (
+                "Redeem now if you want, or keep saving if you are aiming for a"
+                " bigger prize."
+            )
+        if next_reward_gap is None:
             return "One quick action can bring the reward into view."
-        if int(round(points_gap)) <= 0:
-            return "Open the app and request the prize when you are ready."
         return "One quick action could get you over the line."
 
     @staticmethod
-    def _reward_push_sentence(points_gap: float | None) -> str:
-        if points_gap is None:
+    def _reward_push_sentence(
+        can_redeem_now: bool, next_reward_gap: float | None
+    ) -> str:
+        if can_redeem_now:
+            return "You already have enough points for a reward."
+        if next_reward_gap is None:
             return "Your next reward is within reach."
-        rounded = int(round(points_gap))
-        if rounded <= 0:
-            return "You already have enough points for your next prize."
+        rounded = int(round(next_reward_gap))
         return f"Only {rounded:,} points left for your next prize."
 
     @staticmethod
-    def _reward_distance_sentence(points_gap: float | None) -> str:
-        if points_gap is None:
+    def _reward_distance_sentence(
+        can_redeem_now: bool, next_reward_gap: float | None
+    ) -> str:
+        if can_redeem_now:
+            return "It can also help you keep building toward a bigger reward tier."
+        if next_reward_gap is None:
             return "It will also move you closer to your next reward."
-        rounded = int(round(points_gap))
-        if rounded <= 0:
-            return "You already have enough points for a reward, so this is a chance to go beyond the threshold."
+        rounded = int(round(next_reward_gap))
         return f"It can also help close the remaining {rounded:,} points faster."
 
     @staticmethod
@@ -934,11 +1005,13 @@ class CRMDecisionEngine:
         return "A quick scan is the simplest way to earn again."
 
     @staticmethod
-    def _acceleration_sentence(points_gap: float | None) -> str:
-        if points_gap is None:
+    def _acceleration_sentence(
+        can_redeem_now: bool, next_reward_gap: float | None
+    ) -> str:
+        if can_redeem_now:
+            return "Use it to keep momentum high while you build toward a bigger reward."
+        if next_reward_gap is None:
             return "Use it on your next app action to turn current momentum into faster points."
-        if int(round(points_gap)) <= 0:
-            return "Use it to keep momentum high even after crossing the reward threshold."
         return "Use it on your next app action to move faster toward the next reward."
 
     @staticmethod
@@ -961,17 +1034,52 @@ class CRMDecisionEngine:
         )
 
     @staticmethod
-    def _push_acceleration_sentence(row: pd.Series, points_gap: float | None) -> str:
+    def _push_acceleration_sentence(
+        row: pd.Series, can_redeem_now: bool, next_reward_gap: float | None
+    ) -> str:
         preferred_incentive = _clean_text(row["preferred_incentive_lower"])
-        if points_gap is not None and int(round(points_gap)) <= 0:
+        if can_redeem_now:
             return (
                 f"Use {preferred_incentive} and keep building"
-                " beyond your current reward threshold."
+                " toward a bigger reward tier."
             )
         return (
             f"Use {preferred_incentive} on your next app action to move faster"
             " toward your next reward."
         )
+
+    def _load_reward_levels(self, latest_reference: pd.Timestamp) -> list[float]:
+        reward_catalog = pd.read_csv(
+            self.project_root / "data" / "premi_reduced.csv",
+            usecols=["datarichiestapremio", "puntipremio"],
+            low_memory=False,
+        )
+        reward_catalog["datarichiestapremio"] = pd.to_datetime(
+            reward_catalog["datarichiestapremio"], errors="coerce"
+        )
+        reward_catalog["puntipremio"] = pd.to_numeric(
+            reward_catalog["puntipremio"], errors="coerce"
+        )
+        reward_catalog = reward_catalog.dropna(
+            subset=["datarichiestapremio", "puntipremio"]
+        )
+        reward_catalog = reward_catalog[reward_catalog["puntipremio"] > 0]
+        reward_catalog = reward_catalog[
+            reward_catalog["datarichiestapremio"] <= latest_reference
+        ]
+        return sorted(reward_catalog["puntipremio"].astype(float).unique().tolist())
+
+    @staticmethod
+    def _next_reward_threshold(
+        total_points: object, reward_levels: list[float]
+    ) -> float | None:
+        points_value = _clean_float(total_points)
+        if points_value is None:
+            return None
+        for reward_level in reward_levels:
+            if reward_level > points_value:
+                return float(reward_level)
+        return None
 
     @staticmethod
     def _restart_sentence(last_scan_days: int | None) -> str:
@@ -1057,3 +1165,12 @@ class CRMDecisionEngine:
         if tenure_days < NEW_USER_TENURE_DAYS:
             return "Add onboarding context because the user may still be learning how scans and missions work."
         return "The user is established enough that the message can focus on value rather than basics."
+
+    @staticmethod
+    def _format_next_reward_pill(
+        can_redeem_now: bool,
+        next_reward_gap: float | None,
+        next_reward_threshold: float | None,
+    ) -> str:
+        del can_redeem_now, next_reward_gap
+        return _format_points(next_reward_threshold)
