@@ -169,20 +169,27 @@
                   <p class="section-kicker">Campaign output</p>
                   <h2 id="action-title">No active campaign</h2>
                 </div>
-                <span class="decision-chip" id="decision-chip">-</span>
-              </div>
-              <p class="action-summary" id="action-summary"></p>
-              <div class="action-pills" id="action-pills"></div>
-            </article>
-
-            <article class="dash-card logic-card">
-              <div class="card-head">
-                <div>
-                  <p class="section-kicker">Decision logic</p>
+                <div class="decision-hover">
+                  <button
+                    class="decision-chip decision-hover-trigger"
+                    id="decision-chip"
+                    type="button"
+                    aria-haspopup="dialog"
+                    aria-controls="decision-graph"
+                  >
+                    -
+                  </button>
+                  <div
+                    class="decision-hover-card"
+                    role="dialog"
+                    aria-label="Decision path"
+                  >
+                    <div class="decision-graph" id="decision-graph"></div>
+                  </div>
                 </div>
               </div>
-              <p class="logic-summary" id="decision-summary"></p>
-              <ul class="rule-lines" id="decision-lines"></ul>
+              <p class="action-summary" id="action-summary"></p>
+              <div class="notification-grid" id="notification-grid"></div>
             </article>
           </div>
 
@@ -265,8 +272,7 @@
         const metricActivityTooltip = document.getElementById("metric-activity-tooltip");
 
         const decisionChip = document.getElementById("decision-chip");
-        const decisionSummary = document.getElementById("decision-summary");
-        const decisionLines = document.getElementById("decision-lines");
+        const decisionGraph = document.getElementById("decision-graph");
         const activityStats = document.getElementById("activity-stats");
         const activityMonths = document.getElementById("activity-months");
         const activityGrid = document.getElementById("activity-grid");
@@ -277,7 +283,7 @@
 
         const actionTitle = document.getElementById("action-title");
         const actionSummary = document.getElementById("action-summary");
-        const actionPills = document.getElementById("action-pills");
+        const notificationGrid = document.getElementById("notification-grid");
 
         const hiddenClass = "hidden";
         const briefOrder = [
@@ -290,6 +296,31 @@
           "account_tenure_days",
           "lifecycle",
         ];
+        const decisionSegments = {
+          S1: { label: "Referral exit" },
+          S2: { label: "Rescue" },
+          S3: { label: "Prize reminder" },
+          S4: { label: "Acceleration" },
+          S5: { label: "Educational" },
+        };
+        const decisionBranchMap = {
+          physiological_churn: {
+            yes: { type: "segment", target: "S1" },
+            no: { type: "continue", label: "Churn score" },
+          },
+          high_churn: {
+            yes: { type: "segment", target: "S2" },
+            no: { type: "continue", label: "Reward distance" },
+          },
+          points_close: {
+            yes: { type: "segment", target: "S3" },
+            no: { type: "continue", label: "Re-engage score" },
+          },
+          high_engagement: {
+            yes: { type: "segment", target: "S4" },
+            no: { type: "segment", target: "S5" },
+          },
+        };
 
         const setTopNavbarId = (userId) => {
           const cleanId = (userId || "").trim();
@@ -348,19 +379,92 @@
           statusCard.classList.add("status-error");
         };
 
-        const renderList = (element, items) => {
-          element.innerHTML = "";
-          items.forEach((item) => {
-            const li = document.createElement("li");
-            li.textContent = item;
-            element.appendChild(li);
-          });
+        const renderDecisionFlow = (flow) => {
+          decisionGraph.innerHTML = "";
+
+          const renderTreeNode = (stepIndex) => {
+            const step = flow.steps[stepIndex];
+            if (!step || !step.evaluated) {
+              return null;
+            }
+
+            const node = document.createElement("div");
+            node.className = "decision-node";
+
+            const question = document.createElement("div");
+            question.className = "decision-question";
+
+            const questionLabel = document.createElement("strong");
+            questionLabel.className = "decision-question-label";
+            questionLabel.textContent = step.label;
+
+            const questionResult = document.createElement("span");
+            questionResult.className = "decision-question-result";
+            questionResult.textContent = step.result_label;
+
+            question.append(questionLabel, questionResult);
+            node.appendChild(question);
+
+            const branches = document.createElement("div");
+            branches.className = "decision-branches";
+
+            ["yes", "no"].forEach((branchKey) => {
+              const branchConfig = decisionBranchMap[step.key]?.[branchKey];
+              if (!branchConfig) {
+                return;
+              }
+
+              const branch = document.createElement("div");
+              branch.className = "decision-branch";
+
+              const isActive = step.decision === branchKey;
+              branch.classList.add(isActive ? "is-active" : "is-inactive");
+
+              const branchLine = document.createElement("div");
+              branchLine.className = "decision-branch-line";
+
+              const branchLabel = document.createElement("span");
+              branchLabel.className = "decision-branch-label";
+              branchLabel.textContent = branchKey === "yes" ? "Yes" : "No";
+
+              const branchValue = document.createElement("span");
+              branchValue.className = "decision-branch-value";
+              branchValue.textContent = branchConfig.type === "segment"
+                ? `${branchConfig.target} ${decisionSegments[branchConfig.target].label}`
+                : branchConfig.label;
+
+              branchLine.append(branchLabel, branchValue);
+              branch.appendChild(branchLine);
+
+              if (isActive && branchConfig.type === "continue") {
+                const childNode = renderTreeNode(stepIndex + 1);
+                if (childNode) {
+                  branch.appendChild(childNode);
+                }
+              }
+
+              branches.appendChild(branch);
+            });
+
+            node.appendChild(branches);
+            return node;
+          };
+
+          const tree = renderTreeNode(0);
+          if (tree) {
+            tree.classList.add("decision-flow");
+            decisionGraph.appendChild(tree);
+          }
+
+          decisionGraph.setAttribute(
+            "aria-label",
+            `Decision flow ending in ${flow.matched_segment_id} via ${flow.matched_rule_name}.`
+          );
         };
 
         const renderDecision = (output) => {
           decisionChip.textContent = `Segment: ${output.segment_id}`;
-          decisionSummary.textContent = `The user is ${output.segment_name.toLowerCase()} (${output.segment_id}), so the recommended campaign is ${output.campaign}.`;
-          renderList(decisionLines, output.logic_lines);
+          renderDecisionFlow(output.decision_flow);
         };
 
         const renderActivity = (activity) => {
@@ -526,24 +630,73 @@
           });
         };
 
-        const renderAction = (output, profile) => {
+        const renderAction = (output) => {
           actionTitle.textContent = output.campaign;
           actionSummary.textContent = output.action;
-          actionPills.innerHTML = "";
+        };
 
-          if (profile.email_consent) {
-            const pill = document.createElement("span");
-            pill.className = "action-chip";
-            pill.textContent = "Email";
-            actionPills.appendChild(pill);
-          }
+        const renderNotifications = (output, profile) => {
+          const notificationConfigs = [
+            {
+              key: "email",
+              label: "Email",
+              headlineLabel: "Subject",
+              eligible: profile.email_consent,
+            },
+            {
+              key: "push",
+              label: "Push",
+              headlineLabel: "Title",
+              eligible: profile.push_consent,
+            },
+          ];
 
-          if (profile.push_consent) {
-            const pill = document.createElement("span");
-            pill.className = "action-chip";
-            pill.textContent = "Push";
-            actionPills.appendChild(pill);
-          }
+          notificationGrid.innerHTML = "";
+
+          notificationConfigs.forEach((config) => {
+            const draft = output.notifications?.[config.key];
+            if (!draft) {
+              return;
+            }
+
+            const card = document.createElement("article");
+            card.className = "notification-item";
+
+            const head = document.createElement("div");
+            head.className = "notification-head";
+
+            const label = document.createElement("strong");
+            label.className = "notification-channel";
+            label.textContent = config.label;
+
+            const badge = document.createElement("span");
+            badge.className = "notification-status";
+            badge.textContent = config.eligible ? "Eligible" : "Not eligible";
+            if (!config.eligible) {
+              badge.classList.add("is-muted");
+            }
+
+            head.append(label, badge);
+
+            const headlineLabel = document.createElement("p");
+            headlineLabel.className = "notification-label";
+            headlineLabel.textContent = config.headlineLabel;
+
+            const headline = document.createElement("p");
+            headline.className = "notification-headline";
+            headline.textContent = draft.headline;
+
+            const bodyLabel = document.createElement("p");
+            bodyLabel.className = "notification-label";
+            bodyLabel.textContent = "Body";
+
+            const body = document.createElement("p");
+            body.className = "notification-body";
+            body.textContent = draft.body;
+
+            card.append(head, headlineLabel, headline, bodyLabel, body);
+            notificationGrid.appendChild(card);
+          });
         };
 
         const renderPayload = (payload) => {
@@ -564,7 +717,8 @@
           renderDecision(payload.crm_output);
           renderActivity(payload.activity);
           renderBrief(payload.crm_output.marketing_brief);
-          renderAction(payload.crm_output, payload.profile);
+          renderAction(payload.crm_output);
+          renderNotifications(payload.crm_output, payload.profile);
           setStatus(null);
         };
 

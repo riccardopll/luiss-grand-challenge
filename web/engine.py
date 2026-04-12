@@ -19,6 +19,77 @@ EVENT_TYPE_LABELS = {
     "mission": "Mission",
     "redeem": "Redeem",
 }
+NOTIFICATION_TEMPLATES = {
+    "S1": {
+        "email": {
+            "headline": "Share Pampers Club with a friend who needs it now",
+            "body": (
+                "As your family moves through {lifecycle_reference}, this is a good"
+                " moment to share Pampers Club with a pregnant friend or a new"
+                " parent. Pass on the app and turn your experience into a referral"
+                " reward. {tenure_sentence}"
+            ),
+        },
+        "push": {
+            "headline": "Know a new parent who could use this?",
+            "body": (
+                "Invite a pregnant friend or a new parent to Pampers Club and share"
+                " the value you have already learned."
+            ),
+        },
+    },
+    "S2": {
+        "email": {
+            "headline": "Come back now and earn double points",
+            "body": (
+                "{recency_sentence} A limited double-points window can help you"
+                " rebuild momentum quickly."
+                " {redemption_sentence}"
+            ),
+        },
+        "push": {
+            "headline": "Double points are live now",
+            "body": "Restart with one quick action and earn faster while the rescue boost is still active.",
+        },
+    },
+    "S3": {
+        "email": {
+            "headline": "{reward_email_headline}",
+            "body": "{reward_status_sentence} {reward_next_step_sentence} {redemption_sentence}",
+        },
+        "push": {
+            "headline": "{reward_push_headline}",
+            "body": "{reward_push_sentence} {redemption_push_sentence}",
+        },
+    },
+    "S4": {
+        "email": {
+            "headline": "{preferred_incentive_title} to earn faster",
+            "body": (
+                "You are already engaging well, so this is the right moment to earn"
+                " faster. {mission_sentence} {acceleration_sentence}"
+                " {reward_distance_sentence}"
+            ),
+        },
+        "push": {
+            "headline": "{preferred_incentive_title}",
+            "body": "{push_acceleration_sentence}",
+        },
+    },
+    "S5": {
+        "email": {
+            "headline": "A simple way to get more value from the app",
+            "body": (
+                "{educational_intro} {tenure_sentence} {restart_sentence}"
+                " {redemption_sentence}"
+            ),
+        },
+        "push": {
+            "headline": "Start again with one simple scan",
+            "body": "{push_restart_sentence}",
+        },
+    },
+}
 
 
 @dataclass
@@ -27,8 +98,37 @@ class CRMOutput:
     segment_name: str
     campaign: str
     action: str
-    logic_lines: list[str]
+    decision_flow: "DecisionFlow"
     marketing_brief: dict[str, dict[str, str]]
+    notifications: "NotificationSet"
+
+
+@dataclass
+class NotificationProposal:
+    headline: str
+    body: str
+
+
+@dataclass
+class NotificationSet:
+    email: NotificationProposal
+    push: NotificationProposal
+
+
+@dataclass
+class DecisionStep:
+    key: str
+    label: str
+    result_label: str
+    evaluated: bool
+    decision: str | None
+
+
+@dataclass
+class DecisionFlow:
+    steps: list[DecisionStep]
+    matched_rule_name: str
+    matched_segment_id: str
 
 
 @dataclass
@@ -112,12 +212,6 @@ def _score_state(score: float | None, threshold: float) -> str:
 
 def _yes_no(value: bool) -> str:
     return "Yes" if value else "No"
-
-
-def _format_score(value: float | None) -> str:
-    if value is None:
-        return "Not scored"
-    return f"{value:.2f}"
 
 
 def _format_days(value: int | None) -> str:
@@ -292,13 +386,17 @@ class CRMDecisionEngine:
     def _build_crm_output(self, row: pd.Series) -> CRMOutput:
         rule = self._match_rule(row)
         template_context = self._template_context(row)
+        marketing_brief = self._build_marketing_brief(row)
         return CRMOutput(
             segment_id=rule["segment_id"],
             segment_name=rule["segment_name"],
             campaign=self._render_template(rule["campaign"], template_context),
             action=self._render_template(rule["action"], template_context),
-            logic_lines=self._build_logic_lines(row, rule),
-            marketing_brief=self._build_marketing_brief(row),
+            decision_flow=self._build_decision_flow(row, rule),
+            marketing_brief=marketing_brief,
+            notifications=self._build_notifications(
+                row, rule, template_context, marketing_brief
+            ),
         )
 
     def _match_rule(self, row: pd.Series) -> dict[str, str]:
@@ -325,45 +423,57 @@ class CRMDecisionEngine:
             }
         )
 
-    def _build_logic_lines(
+    def _build_decision_flow(
         self,
         row: pd.Series,
         rule: dict[str, str],
-    ) -> list[str]:
-        lines = [self._physiological_line(row)]
-        if _truthy_flag(row["physiological_churn"]):
-            lines.append(
-                "Lifecycle exit short-circuits churn, engagement, and points checks."
-            )
-        else:
-            lines.append(self._score_line(
-                "Churn score",
-                _clean_float(row["churn_30_to_60_prob"]),
-                CHURN_THRESHOLD,
-                default_note="The score is missing in the current export, so the engine falls back to low churn.",
-            ))
-            if _truthy_flag(row["high_churn"]):
-                lines.append(self._score_line(
-                    "Re-engage30d",
-                    _clean_float(row["re_engage_30d_prob"]),
-                    ENGAGEMENT_THRESHOLD,
-                    default_note="The score is missing in the current export, so the engine falls back to low engagement.",
-                ))
-                lines.append(self._points_line(row))
-            else:
-                lines.append(self._points_line(row))
-                if not _truthy_flag(row["points_close"]):
-                    lines.append(self._score_line(
-                        "Re-engage30d",
-                        _clean_float(row["re_engage_30d_prob"]),
-                        ENGAGEMENT_THRESHOLD,
-                        default_note="The score is missing in the current export, so the engine falls back to low engagement.",
-                    ))
+    ) -> DecisionFlow:
+        physiological = _truthy_flag(row["physiological_churn"])
+        high_churn = _truthy_flag(row["high_churn"])
+        points_close = _truthy_flag(row["points_close"])
+        high_engagement = _truthy_flag(row["high_engagement"])
 
-        lines.append(
-            f"First matching rule in priority order: `{rule['rule_name']}` -> {rule['segment_id']}."
+        steps = [
+            DecisionStep(
+                key="physiological_churn",
+                label="Lifecycle transition?",
+                result_label="Yes" if physiological else "No",
+                evaluated=True,
+                decision="yes" if physiological else "no",
+            ),
+            DecisionStep(
+                key="high_churn",
+                label="High churn score?",
+                result_label="High" if high_churn else "Low",
+                evaluated=not physiological,
+                decision=(
+                    "yes" if high_churn else "no") if not physiological else None,
+            ),
+            DecisionStep(
+                key="points_close",
+                label="Near reward threshold?",
+                result_label="Close" if points_close else "Far",
+                evaluated=not physiological and not high_churn,
+                decision=(
+                    "yes" if points_close else "no"
+                ) if not physiological and not high_churn else None,
+            ),
+            DecisionStep(
+                key="high_engagement",
+                label="High re-engage propensity?",
+                result_label="High" if high_engagement else "Low",
+                evaluated=not physiological and not high_churn and not points_close,
+                decision=(
+                    "yes" if high_engagement else "no"
+                ) if not physiological and not high_churn and not points_close else None,
+            ),
+        ]
+
+        return DecisionFlow(
+            steps=steps,
+            matched_rule_name=rule["rule_name"],
+            matched_segment_id=rule["segment_id"],
         )
-        return lines
 
     def _build_marketing_brief(self, row: pd.Series) -> dict[str, dict[str, str]]:
         points_gap = _clean_float(row["points_gap"])
@@ -413,6 +523,89 @@ class CRMDecisionEngine:
                 "guidance": "Use lifecycle context to keep the message relevant to the customer's current family stage.",
             },
         }
+
+    def _build_notifications(
+        self,
+        row: pd.Series,
+        rule: dict[str, str],
+        template_context: dict[str, str],
+        marketing_brief: dict[str, dict[str, str]],
+    ) -> NotificationSet:
+        templates = NOTIFICATION_TEMPLATES.get(
+            rule["segment_id"], NOTIFICATION_TEMPLATES["S5"]
+        )
+        context = self._notification_context(
+            row, rule, template_context, marketing_brief
+        )
+        return NotificationSet(
+            email=NotificationProposal(
+                headline=self._render_copy_template(
+                    templates["email"]["headline"], context
+                ),
+                body=self._render_copy_template(
+                    templates["email"]["body"], context),
+            ),
+            push=NotificationProposal(
+                headline=self._render_copy_template(
+                    templates["push"]["headline"], context
+                ),
+                body=self._render_copy_template(
+                    templates["push"]["body"], context),
+            ),
+        )
+
+    def _notification_context(
+        self,
+        row: pd.Series,
+        rule: dict[str, str],
+        template_context: dict[str, str],
+        marketing_brief: dict[str, dict[str, str]],
+    ) -> dict[str, str]:
+        points_gap = _clean_float(row["points_gap"])
+        last_scan_days = _clean_int(row["days_since_last_scan"])
+        has_redeemed = _truthy_flag(row["has_ever_redeemed"])
+        tenure_days = _clean_int(row["tenure_days"])
+        lifecycle_reference = self._lifecycle_reference(
+            marketing_brief["lifecycle"]["value"]
+        )
+
+        return _SafeFormatDict(
+            {
+                **template_context,
+                "segment_name": rule["segment_name"],
+                "lifecycle_reference": lifecycle_reference,
+                "recency_sentence": self._notification_recency_sentence(
+                    last_scan_days
+                ),
+                "redemption_sentence": self._notification_redemption_sentence(
+                    has_redeemed
+                ),
+                "redemption_push_sentence": self._notification_redemption_push_sentence(
+                    has_redeemed
+                ),
+                "tenure_sentence": self._notification_tenure_sentence(tenure_days),
+                "reward_email_headline": self._reward_email_headline(points_gap),
+                "reward_push_headline": self._reward_push_headline(points_gap),
+                "reward_status_sentence": self._reward_status_sentence(points_gap),
+                "reward_next_step_sentence": self._reward_next_step_sentence(
+                    points_gap
+                ),
+                "reward_push_sentence": self._reward_push_sentence(points_gap),
+                "reward_distance_sentence": self._reward_distance_sentence(points_gap),
+                "mission_sentence": self._mission_sentence(row),
+                "educational_intro": self._educational_intro(
+                    lifecycle_reference, last_scan_days
+                ),
+                "push_acceleration_sentence": self._push_acceleration_sentence(
+                    row, points_gap
+                ),
+                "push_restart_sentence": self._push_restart_sentence(
+                    tenure_days, has_redeemed
+                ),
+                "acceleration_sentence": self._acceleration_sentence(points_gap),
+                "restart_sentence": self._restart_sentence(last_scan_days),
+            }
+        )
 
     def _build_segment_lookup(self, frame: pd.DataFrame) -> dict[str, str]:
         segment_map: dict[str, str] = {}
@@ -626,44 +819,178 @@ class CRMDecisionEngine:
         return template.format_map(context)
 
     @staticmethod
-    def _physiological_line(row: pd.Series) -> str:
-        child_age = _clean_int(row["ETA_MM_BambinoTODAY"])
-        if _truthy_flag(row["physiological_churn"]):
+    def _render_copy_template(template: str, context: dict[str, str]) -> str:
+        return " ".join(template.format_map(context).split())
+
+    @staticmethod
+    def _lifecycle_reference(value: str) -> str:
+        clean_value = value.strip()
+        if not clean_value:
+            return "your current family stage"
+        if clean_value.startswith("pregnancy"):
+            return "pregnancy"
+        if "(" in clean_value:
+            return clean_value.split("(", 1)[0].strip() + " months"
+        return clean_value
+
+    @staticmethod
+    def _notification_recency_sentence(last_scan_days: int | None) -> str:
+        if last_scan_days is None:
+            return "A fresh scan is enough to restart momentum."
+        if last_scan_days <= 14:
+            return "You were active recently, so a small nudge can turn into quick action."
+        if last_scan_days <= 45:
+            return "You are not far from your last scan, so this is a good moment to reconnect."
+        return "It has been a while, so the easiest restart is one quick action."
+
+    @staticmethod
+    def _notification_redemption_sentence(has_redeemed: bool) -> str:
+        if has_redeemed:
+            return "Keep building toward your next prize."
+        return "Your first reward request is simple, and the app guides each step."
+
+    @staticmethod
+    def _notification_redemption_push_sentence(has_redeemed: bool) -> str:
+        if has_redeemed:
+            return "Open the app and keep going."
+        return "Open the app and we will guide the next step."
+
+    @staticmethod
+    def _notification_tenure_sentence(tenure_days: int | None) -> str:
+        if tenure_days is None:
+            return ""
+        if tenure_days < NEW_USER_TENURE_DAYS:
             return (
-                "Physiological churn is `Yes` because the user is already in the"
-                f" lifecycle transition window ({child_age} months)."
+                "A quick reminder: scans and missions are the fastest way to start"
+                " collecting points."
+            )
+        return ""
+
+    @staticmethod
+    def _reward_email_headline(points_gap: float | None) -> str:
+        if points_gap is None:
+            return "Your next reward is within reach"
+        rounded = int(round(points_gap))
+        if rounded <= 0:
+            return "Your next reward is ready"
+        if rounded == 1:
+            return "You are only 1 point from your next reward"
+        return f"You are only {rounded:,} points from your next reward"
+
+    @staticmethod
+    def _reward_push_headline(points_gap: float | None) -> str:
+        if points_gap is None:
+            return "Your next reward is close"
+        if int(round(points_gap)) <= 0:
+            return "Your next reward is ready"
+        return "Your next reward is close"
+
+    @staticmethod
+    def _reward_status_sentence(points_gap: float | None) -> str:
+        if points_gap is None:
+            return "You are already within reach of your next reward."
+        rounded = int(round(points_gap))
+        if rounded <= 0:
+            return "You already have enough points for your next reward."
+        return f"You are only {rounded:,} points away from your next reward."
+
+    @staticmethod
+    def _reward_next_step_sentence(points_gap: float | None) -> str:
+        if points_gap is None:
+            return "One quick action can bring the reward into view."
+        if int(round(points_gap)) <= 0:
+            return "Open the app and request the prize when you are ready."
+        return "One quick action could get you over the line."
+
+    @staticmethod
+    def _reward_push_sentence(points_gap: float | None) -> str:
+        if points_gap is None:
+            return "Your next reward is within reach."
+        rounded = int(round(points_gap))
+        if rounded <= 0:
+            return "You already have enough points for your next prize."
+        return f"Only {rounded:,} points left for your next prize."
+
+    @staticmethod
+    def _reward_distance_sentence(points_gap: float | None) -> str:
+        if points_gap is None:
+            return "It will also move you closer to your next reward."
+        rounded = int(round(points_gap))
+        if rounded <= 0:
+            return "You already have enough points for a reward, so this is a chance to go beyond the threshold."
+        return f"It can also help close the remaining {rounded:,} points faster."
+
+    @staticmethod
+    def _mission_sentence(row: pd.Series) -> str:
+        mission_engagement = _clean_text(row["mission_engagement"])
+        preferred_incentive = _clean_text(row["preferred_incentive_title"])
+        if mission_engagement == "Mission-active":
+            return "Pick up your next mission and keep the streak going."
+        if mission_engagement == "Mission-curious":
+            return (
+                f"{preferred_incentive} is a good next step because you already"
+                " show some mission interest."
+            )
+        return "A quick scan is the simplest way to earn again."
+
+    @staticmethod
+    def _acceleration_sentence(points_gap: float | None) -> str:
+        if points_gap is None:
+            return "Use it on your next app action to turn current momentum into faster points."
+        if int(round(points_gap)) <= 0:
+            return "Use it to keep momentum high even after crossing the reward threshold."
+        return "Use it on your next app action to move faster toward the next reward."
+
+    @staticmethod
+    def _educational_intro(
+        lifecycle_reference: str, last_scan_days: int | None
+    ) -> str:
+        if last_scan_days is None:
+            return (
+                "Getting value from the app again can start with one simple scan"
+                f" during {lifecycle_reference}."
+            )
+        if last_scan_days <= 45:
+            return (
+                "You are still close enough to your last activity that one simple"
+                f" scan can bring the app back into your routine for {lifecycle_reference}."
             )
         return (
-            "Physiological churn is `No`, so the engine continues to churn,"
-            " engagement, and points checks."
+            "If the app has been quiet for a while, start small with one scan and"
+            f" rebuild value around {lifecycle_reference}."
         )
 
     @staticmethod
-    def _score_line(
-        label: str,
-        score: float | None,
-        threshold: float,
-        *,
-        default_note: str,
-    ) -> str:
-        if score is None:
-            return f"{label} is not available. {default_note}"
-        state = "High" if score >= threshold else "Low"
+    def _push_acceleration_sentence(row: pd.Series, points_gap: float | None) -> str:
+        preferred_incentive = _clean_text(row["preferred_incentive_lower"])
+        if points_gap is not None and int(round(points_gap)) <= 0:
+            return (
+                f"Use {preferred_incentive} and keep building"
+                " beyond your current reward threshold."
+            )
         return (
-            f"{label} is {_format_score(score)} ({state}) against the"
-            f" {threshold:.2f} split."
+            f"Use {preferred_incentive} on your next app action to move faster"
+            " toward your next reward."
         )
 
     @staticmethod
-    def _points_line(row: pd.Series) -> str:
-        points_gap = _clean_float(row["points_gap"])
-        if points_gap is None:
-            return "Points gap is unknown, so the engine treats proximity as `Far`."
-        proximity = "Close" if _truthy_flag(row["points_close"]) else "Far"
-        return (
-            f"Points gap is {_format_points(points_gap)}, which is `{proximity}`"
-            f" relative to the {POINTS_CLOSE_THRESHOLD}-point trigger."
-        )
+    def _restart_sentence(last_scan_days: int | None) -> str:
+        if last_scan_days is None:
+            return "Start with one simple scan and rebuild the habit without pressure."
+        if last_scan_days <= 45:
+            return "A small next step is enough to bring the routine back."
+        return "Start with one simple scan and rebuild the habit without pressure."
+
+    @staticmethod
+    def _push_restart_sentence(tenure_days: int | None, has_redeemed: bool) -> str:
+        if tenure_days is not None and tenure_days < NEW_USER_TENURE_DAYS:
+            return (
+                "Learn the basics fast with one scan: scans and missions turn"
+                " into points right away."
+            )
+        if has_redeemed:
+            return "Come back with one quick action and keep your points moving."
+        return "Come back with one scan and we will guide you to your first reward."
 
     @staticmethod
     def _activity_level(count: int, max_count: int) -> int:
