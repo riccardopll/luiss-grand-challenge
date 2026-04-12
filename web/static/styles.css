@@ -699,9 +699,8 @@ input {
 
 .activity-footer {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  align-items: flex-start;
   gap: 12px;
   margin-top: 20px;
 }
@@ -711,6 +710,7 @@ input {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+  width: 100%;
 }
 
 .activity-event-legend,
